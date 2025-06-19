@@ -1,5 +1,8 @@
 class TelemetryApp {
     constructor() {
+
+        this.followDot = false;
+
         this.fitFilePath = null;
         this.videoFilePath = null;
         this.gpxData = null;
@@ -47,6 +50,11 @@ class TelemetryApp {
         video.addEventListener('timeupdate', () => this.onVideoTimeUpdate());
         video.addEventListener('play', () => this.onVideoPlay());
         video.addEventListener('pause', () => this.onVideoPause());
+
+        document.getElementById('follow-toggle').addEventListener('change', (e) => {
+            this.followDot = e.target.checked;
+        });
+
         
         // Start smooth animation loop
         this.startSmoothAnimation();
@@ -143,6 +151,11 @@ class TelemetryApp {
         
         // Update marker position
         this.currentPositionMarker.setLatLng([this.currentPosition.lat, this.currentPosition.lon]);
+
+        if (this.followDot && this.map) {
+            this.map.setView([this.currentPosition.lat, this.currentPosition.lon]);
+        }
+
         
         this.lastUpdateTime = currentTime;
     }
