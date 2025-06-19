@@ -1,6 +1,5 @@
 class TelemetryApp {
     constructor() {
-        //Only seen if success
         this.fitFilePath = null;
         this.videoFilePath = null;
         this.gpxData = null;
