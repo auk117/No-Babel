@@ -1,0 +1,66 @@
+{
+  "name": "telemetry-sync",
+  "version": "1.0.0",
+  "description": "Video and GPS telemetry synchronization app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build-portable": "electron-builder --win portable",
+    "build-installer": "electron-builder --win nsis",
+    "package-portable": "electron-packager . telemetry-sync --platform=win32 --arch=x64 --out=dist/ --overwrite"
+  },
+  "keywords": [
+    "telemetry",
+    "gps",
+    "video",
+    "sync"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.3.2",
+    "ffprobe-static": "^3.1.0",
+    "fluent-ffmpeg": "^2.1.2"
+  },
+  "build": {
+    "appId": "com.yourname.telemetry-sync",
+    "productName": "Telemetry Sync",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/electron/**/*",
+      "!dist/**/*",
+      "!.git/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "TelemetrySync-Portable.exe"
+    },
+    "extraResources": [
+      {
+        "from": "tools/",
+        "to": "tools/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telemetry Sync</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- File Selection Panel -->
+        <div id="file-panel" class="panel">
+            <h2>Select Files</h2>
+            <div class="file-selection">
+                <button id="select-fit-btn" class="btn primary">Select FIT/GPX File</button>
+                <span id="fit-file-name" class="file-name"></span>
+            </div>
+            <div class="file-selection">
+                <button id="select-video-btn" class="btn primary">Select Video File</button>
+                <span id="video-file-name" class="file-name"></span>
+            </div>
+            <button id="load-btn" class="btn success" disabled>Load & Sync</button>
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <span>Processing files...</span>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content" class="hidden">
+            <!-- Video Controls -->
+            <div id="video-controls" class="controls-panel">
+                <button id="play-pause-btn" class="btn">Play</button>
+                <span id="time-display">00:00 / 00:00</span>
+                <input type="range" id="timeline-slider" min="0" max="100" value="0" class="slider">
+                <div class="sync-controls">
+                    <label>Offset (ms):</label>
+                    <input type="number" id="offset-input" value="0" step="100">
+                    <button id="sync-btn" class="btn secondary">Apply Sync</button>
+                </div>
+            </div>
+
+            <!-- Video and Map Container -->
+            <div id="content-container">
+                <!-- Video Panel -->
+                <div id="video-panel" class="content-panel">
+                    <video id="video-player" controls>
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="video-info" class="info-panel">
+                        <h3>Video Info</h3>
+                        <div id="video-stats">
+                            <div>Frame: <span id="current-frame">0</span></div>
+                            <div>FPS: <span id="video-fps">0</span></div>
+                            <div>Time: <span id="video-time">00:00</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resizable Splitter -->
+                <div id="splitter" class="splitter"></div>
+
+                <!-- Map Panel -->
+                <div id="map-panel" class="content-panel">
+                    <div id="map"></div>
+                    <div id="telemetry-info" class="info-panel">
+                        <h3>Telemetry Data</h3>
+                        <div id="gps-stats">
+                            <div>Lat: <span id="current-lat">--</span></div>
+                            <div>Lon: <span id="current-lon">--</span></div>
+                            <div>Speed: <span id="current-speed">--</span> m/s</div>
+                            <div>Elevation: <span id="current-elevation">--</span> m</div>
+                            <div>Distance: <span id="total-distance">--</span> km</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
