@@ -18,6 +18,7 @@ class TelemetryApp {
         this.lastUpdateTime = 0;
         this.targetPosition = null;
         this.currentPosition = null;
+        this.lastValidPosition = null; // Track last valid GPS position
         
         // Splitter properties
         this.isResizing = false;
@@ -232,7 +233,7 @@ class TelemetryApp {
             // Parse GPX data
             console.log('Parsing GPX data...');
             this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
-            console.log(`Loaded ${this.gpxData.totalPoints} GPS points`);
+            console.log(`Loaded ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
             
             // Get video metadata
             console.log('Getting video metadata...');
@@ -261,14 +262,14 @@ class TelemetryApp {
     processGpsData() {
         if (!this.gpxData || !this.gpxData.points.length) return;
         
-        const points = this.gpxData.points;
+        const validPoints = this.gpxData.validPoints;
         
-        // Calculate total distance
+        // Calculate total distance using only valid points
         let totalDistance = 0;
-        for (let i = 1; i < points.length; i++) {
+        for (let i = 1; i < validPoints.length; i++) {
             const dist = this.calculateDistance(
-                points[i-1].lat, points[i-1].lon,
-                points[i].lat, points[i].lon
+                validPoints[i-1].lat, validPoints[i-1].lon,
+                validPoints[i].lat, validPoints[i].lon
             );
             totalDistance += dist;
         }
@@ -278,14 +279,14 @@ class TelemetryApp {
         // Create interpolated points based on video FPS
         this.interpolateGpsPoints();
         
-        // Draw track on map
+        // Draw track on map using only valid points
         this.drawTrackOnMap();
     }
 
     interpolateGpsPoints() {
         if (!this.gpxData || !this.videoMetadata) return;
         
-        const points = this.gpxData.points;
+        const points = this.gpxData.points; // Use all points for timing
         const fps = this.videoMetadata.fps;
         const videoDuration = this.videoMetadata.duration;
         
@@ -299,7 +300,7 @@ class TelemetryApp {
             const videoTime = (frame / fps) * 1000; // milliseconds
             const gpsTime = startTime + videoTime + this.syncOffset;
             
-            // Find closest GPS points
+            // Find closest GPS points (using all points for timing accuracy)
             const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
             if (interpolatedPoint) {
                 interpolatedPoint.frame = frame;
@@ -328,10 +329,27 @@ class TelemetryApp {
         }
         
         if (!beforePoint && !afterPoint) return null;
-        if (!beforePoint) return afterPoint;
-        if (!afterPoint) return beforePoint;
+        if (!beforePoint) return this.createInterpolatedPoint(afterPoint);
+        if (!afterPoint) return this.createInterpolatedPoint(beforePoint);
         
-        // Linear interpolation
+        // Check if we have valid GPS data for interpolation
+        const beforeValid = beforePoint.isValid;
+        const afterValid = afterPoint.isValid;
+        
+        // If neither point is valid, return null (will hold last valid position)
+        if (!beforeValid && !afterValid) {
+            return null;
+        }
+        
+        // If only one point is valid, use that one
+        if (!beforeValid && afterValid) {
+            return this.createInterpolatedPoint(afterPoint);
+        }
+        if (beforeValid && !afterValid) {
+            return this.createInterpolatedPoint(beforePoint);
+        }
+        
+        // Both points are valid - do linear interpolation
         const beforeTime = new Date(beforePoint.time).getTime();
         const afterTime = new Date(afterPoint.time).getTime();
         const ratio = (targetTime - beforeTime) / (afterTime - beforeTime);
@@ -340,10 +358,24 @@ class TelemetryApp {
             lat: beforePoint.lat + (afterPoint.lat - beforePoint.lat) * ratio,
             lon: beforePoint.lon + (afterPoint.lon - beforePoint.lon) * ratio,
             ele: beforePoint.ele !== null && afterPoint.ele !== null ? 
-                 beforePoint.ele + (afterPoint.ele - beforePoint.ele) * ratio : null,
+                 beforePoint.ele + (afterPoint.ele - beforePoint.ele) * ratio : 
+                 (beforePoint.ele !== null ? beforePoint.ele : afterPoint.ele),
             speed: beforePoint.speed !== null && afterPoint.speed !== null ? 
-                   beforePoint.speed + (afterPoint.speed - beforePoint.speed) * ratio : null,
-            time: new Date(targetTime).toISOString()
+                   beforePoint.speed + (afterPoint.speed - beforePoint.speed) * ratio : 
+                   (beforePoint.speed !== null ? beforePoint.speed : afterPoint.speed),
+            time: new Date(targetTime).toISOString(),
+            isValid: true
+        };
+    }
+
+    createInterpolatedPoint(sourcePoint) {
+        return {
+            lat: sourcePoint.lat,
+            lon: sourcePoint.lon,
+            ele: sourcePoint.ele,
+            speed: sourcePoint.speed,
+            time: sourcePoint.time,
+            isValid: sourcePoint.isValid
         };
     }
 
@@ -355,8 +387,14 @@ class TelemetryApp {
             this.map.removeLayer(this.trackPolyline);
         }
         
-        // Create polyline from GPS points
-        const latlngs = this.gpxData.points.map(point => [point.lat, point.lon]);
+        // Create polyline from valid GPS points only
+        const validPoints = this.gpxData.validPoints;
+        if (validPoints.length === 0) {
+            console.warn('No valid GPS points to draw track');
+            return;
+        }
+        
+        const latlngs = validPoints.map(point => [point.lat, point.lon]);
         
         this.trackPolyline = L.polyline(latlngs, {
             color: 'red',
@@ -372,22 +410,23 @@ class TelemetryApp {
             this.seekToMapPosition(e.latlng);
         });
         
-        // Create current position marker
-        if (this.interpolatedPoints.length > 0) {
-            const firstPoint = this.interpolatedPoints[0];
-            this.currentPositionMarker = L.circleMarker([firstPoint.lat, firstPoint.lon], {
+        // Create current position marker using first valid point
+        if (validPoints.length > 0) {
+            const firstValidPoint = validPoints[0];
+            this.currentPositionMarker = L.circleMarker([firstValidPoint.lat, firstValidPoint.lon], {
                 radius: 8,
                 fillColor: '#007acc',
                 color: '#ffffff',
                 weight: 2,
                 opacity: 1,
                 fillOpacity: 0.8,
-                className: 'smooth-marker'  // Add CSS class for smooth transitions
+                className: 'smooth-marker'
             }).addTo(this.map);
             
             // Initialize smooth animation positions
-            this.currentPosition = { lat: firstPoint.lat, lon: firstPoint.lon };
-            this.targetPosition = { lat: firstPoint.lat, lon: firstPoint.lon };
+            this.currentPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
+            this.targetPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
+            this.lastValidPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
             
             // Make marker draggable for seeking
             this.currentPositionMarker.on('mousedown', () => {
@@ -414,15 +453,17 @@ class TelemetryApp {
     seekToMapPosition(latlng) {
         if (!this.interpolatedPoints.length) return;
         
-        // Find closest interpolated point
+        // Find closest valid interpolated point
         let closestPoint = null;
         let closestDistance = Infinity;
         
         for (const point of this.interpolatedPoints) {
-            const distance = this.calculateDistance(latlng.lat, latlng.lng, point.lat, point.lon);
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestPoint = point;
+            if (point && point.isValid) {
+                const distance = this.calculateDistance(latlng.lat, latlng.lng, point.lat, point.lon);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestPoint = point;
+                }
             }
         }
         
@@ -466,23 +507,38 @@ class TelemetryApp {
     updateMarkerPosition(frame) {
         if (!this.currentPositionMarker || !this.interpolatedPoints.length) return;
         
-        const point = this.interpolatedPoints.find(p => p.frame === frame);
+        const point = this.interpolatedPoints.find(p => p && p.frame === frame);
+        
         if (point) {
-            // Update target position for smooth animation
-            this.targetPosition = { lat: point.lat, lon: point.lon };
-            
-            // If not playing or dragging, jump immediately
-            if (!this.isPlaying || this.isDragging) {
-                this.currentPosition = { lat: point.lat, lon: point.lon };
-                this.currentPositionMarker.setLatLng([point.lat, point.lon]);
+            if (point.isValid) {
+                // Update target position for smooth animation
+                this.targetPosition = { lat: point.lat, lon: point.lon };
+                this.lastValidPosition = { lat: point.lat, lon: point.lon };
+                
+                // If not playing or dragging, jump immediately
+                if (!this.isPlaying || this.isDragging) {
+                    this.currentPosition = { lat: point.lat, lon: point.lon };
+                    this.currentPositionMarker.setLatLng([point.lat, point.lon]);
+                }
+            } else {
+                // Invalid GPS data - hold at last valid position
+                if (this.lastValidPosition) {
+                    this.targetPosition = { lat: this.lastValidPosition.lat, lon: this.lastValidPosition.lon };
+                    
+                    if (!this.isPlaying || this.isDragging) {
+                        this.currentPosition = { lat: this.lastValidPosition.lat, lon: this.lastValidPosition.lon };
+                        this.currentPositionMarker.setLatLng([this.lastValidPosition.lat, this.lastValidPosition.lon]);
+                    }
+                }
             }
             
             // Add popup with current data
             const popupContent = `
                 <div style="color: white;">
                     <strong>Frame:</strong> ${frame}<br>
-                    <strong>Lat:</strong> ${point.lat.toFixed(6)}<br>
-                    <strong>Lon:</strong> ${point.lon.toFixed(6)}<br>
+                    <strong>GPS Valid:</strong> ${point.isValid ? 'Yes' : 'No'}<br>
+                    <strong>Lat:</strong> ${point.isValid ? point.lat.toFixed(6) : 'Invalid'}<br>
+                    <strong>Lon:</strong> ${point.isValid ? point.lon.toFixed(6) : 'Invalid'}<br>
                     <strong>Speed:</strong> ${point.speed ? point.speed.toFixed(2) + ' m/s' : 'N/A'}<br>
                     <strong>Elevation:</strong> ${point.ele ? point.ele.toFixed(1) + ' m' : 'N/A'}
                 </div>
@@ -495,10 +551,10 @@ class TelemetryApp {
     updateTelemetryDisplay(frame) {
         if (!this.interpolatedPoints.length) return;
         
-        const point = this.interpolatedPoints.find(p => p.frame === frame);
+        const point = this.interpolatedPoints.find(p => p && p.frame === frame);
         if (point) {
-            document.getElementById('current-lat').textContent = point.lat.toFixed(6);
-            document.getElementById('current-lon').textContent = point.lon.toFixed(6);
+            document.getElementById('current-lat').textContent = point.isValid ? point.lat.toFixed(6) : 'Invalid';
+            document.getElementById('current-lon').textContent = point.isValid ? point.lon.toFixed(6) : 'Invalid';
             document.getElementById('current-speed').textContent = point.speed ? point.speed.toFixed(2) : '--';
             document.getElementById('current-elevation').textContent = point.ele ? point.ele.toFixed(1) : '--';
         }

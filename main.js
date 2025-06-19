@@ -156,6 +156,8 @@ ipcMain.handle('get-video-metadata', async (event, videoPath) => {
   });
 });
 
+// Updated section for main.js - replace the parse-gpx handler
+
 // Parse GPX file
 ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
   try {
@@ -187,12 +189,23 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
         
         points.forEach(point => {
           if (point["@_lat"] && point["@_lon"] && point.time) {
+            const lat = parseFloat(point["@_lat"]);
+            const lon = parseFloat(point["@_lon"]);
+            
+            // Check if coordinates are valid (not 0,0 and within reasonable bounds)
+            const isValidCoordinate = (
+              lat !== 0 || lon !== 0
+            ) && (
+              lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+            );
+            
             allPoints.push({
-              lat: parseFloat(point["@_lat"]),
-              lon: parseFloat(point["@_lon"]),
+              lat: lat,
+              lon: lon,
               ele: point.ele ? parseFloat(point.ele) : null,
               time: point.time,
-              speed: point.speed ? parseFloat(point.speed) : null
+              speed: point.speed ? parseFloat(point.speed) : null,
+              isValid: isValidCoordinate
             });
           }
         });
@@ -202,9 +215,14 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
     // Sort by time
     allPoints.sort((a, b) => new Date(a.time) - new Date(b.time));
     
+    // Separate valid points for track drawing
+    const validPoints = allPoints.filter(point => point.isValid);
+    
     return {
-      points: allPoints,
+      points: allPoints, // All points including invalid ones for timing
+      validPoints: validPoints, // Only valid points for track drawing
       totalPoints: allPoints.length,
+      validPointsCount: validPoints.length,
       startTime: allPoints.length > 0 ? allPoints[0].time : null,
       endTime: allPoints.length > 0 ? allPoints[allPoints.length - 1].time : null
     };
