@@ -2,11 +2,11 @@ class TelemetryApp {
     constructor() {
         this.followDot = false;
         this.fitFilePath = null;
-        this.videoFilePaths = []; // Changed to array for multiple videos
-        this.stitchedVideoPath = null; // Path to the stitched video
+        this.videoFilePaths = [];
+        this.stitchedVideoPath = null;
         this.gpxData = null;
         this.videoMetadata = null;
-        this.syncOffset = 0; // milliseconds
+        this.syncOffset = 0;
         this.isPlaying = false;
         this.currentFrame = 0;
         
@@ -15,14 +15,12 @@ class TelemetryApp {
         this.currentPositionMarker = null;
         this.interpolatedPoints = [];
         
-        // Smooth animation properties
         this.animationFrameId = null;
         this.lastUpdateTime = 0;
         this.targetPosition = null;
         this.currentPosition = null;
-        this.lastValidPosition = null; // Track last valid GPS position
+        this.lastValidPosition = null;
         
-        // Splitter properties
         this.isResizing = false;
         this.startX = 0;
         this.startVideoWidth = 0;
@@ -33,18 +31,15 @@ class TelemetryApp {
     }
 
     initializeUI() {
-        // File selection
         document.getElementById('select-fit-btn').addEventListener('click', () => this.selectFitFile());
         document.getElementById('select-video-btn').addEventListener('click', () => this.selectVideoFiles());
         document.getElementById('remove-video-btn').addEventListener('click', () => this.removeSelectedVideo());
         document.getElementById('load-btn').addEventListener('click', () => this.loadAndSync());
         
-        // Video controls
         document.getElementById('play-pause-btn').addEventListener('click', () => this.togglePlayPause());
         document.getElementById('timeline-slider').addEventListener('input', (e) => this.seekToPosition(e.target.value));
         document.getElementById('sync-btn').addEventListener('click', () => this.applySyncOffset());
         
-        // Video events
         const video = document.getElementById('video-player');
         video.addEventListener('loadedmetadata', () => this.onVideoLoaded());
         video.addEventListener('timeupdate', () => this.onVideoTimeUpdate());
@@ -55,22 +50,18 @@ class TelemetryApp {
             this.followDot = e.target.checked;
         });
 
-        // Video list events
         document.getElementById('video-list').addEventListener('click', (e) => {
             if (e.target.classList.contains('video-item')) {
                 this.selectVideoInList(e.target);
             }
         });
         
-        // Start smooth animation loop
         this.startSmoothAnimation();
     }
 
     initializeSplitter() {
         const splitter = document.getElementById('splitter');
         const videoPanel = document.getElementById('video-panel');
-        const mapPanel = document.getElementById('map-panel');
-        const container = document.getElementById('content-container');
 
         splitter.addEventListener('mousedown', (e) => {
             this.isResizing = true;
@@ -80,7 +71,6 @@ class TelemetryApp {
             document.addEventListener('mousemove', this.handleSplitterMove.bind(this));
             document.addEventListener('mouseup', this.handleSplitterUp.bind(this));
             
-            // Prevent text selection during drag
             document.body.style.userSelect = 'none';
             document.body.style.cursor = 'col-resize';
             
@@ -101,17 +91,14 @@ class TelemetryApp {
         
         let newVideoWidth = this.startVideoWidth + deltaX;
         
-        // Enforce minimum widths
         const minWidth = 300;
         const maxVideoWidth = containerWidth - minWidth - splitterWidth;
         
         newVideoWidth = Math.max(minWidth, Math.min(newVideoWidth, maxVideoWidth));
         
-        // Update panel widths
         const videoWidthPercent = (newVideoWidth / containerWidth) * 100;
         videoPanel.style.width = `${videoWidthPercent}%`;
         
-        // Force map to resize
         if (this.map) {
             setTimeout(() => {
                 this.map.invalidateSize();
@@ -127,7 +114,6 @@ class TelemetryApp {
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
         
-        // Final map resize
         if (this.map) {
             setTimeout(() => {
                 this.map.invalidateSize();
@@ -148,14 +134,11 @@ class TelemetryApp {
     updateSmoothPosition(currentTime) {
         if (!this.targetPosition || !this.currentPosition) return;
         
-        const deltaTime = currentTime - this.lastUpdateTime;
-        const animationSpeed = 0.1; // Adjust for smoother/faster animation
+        const animationSpeed = 0.1;
         
-        // Lerp (linear interpolation) between current and target position
         this.currentPosition.lat += (this.targetPosition.lat - this.currentPosition.lat) * animationSpeed;
         this.currentPosition.lon += (this.targetPosition.lon - this.currentPosition.lon) * animationSpeed;
         
-        // Update marker position
         this.currentPositionMarker.setLatLng([this.currentPosition.lat, this.currentPosition.lon]);
 
         if (this.followDot && this.map) {
@@ -171,7 +154,6 @@ class TelemetryApp {
             attributionControl: true
         }).setView([24.8474, 46.7342], 13);
         
-        // Add tile layers
         const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '© OpenStreetMap contributors'
@@ -184,13 +166,11 @@ class TelemetryApp {
         
         osmLayer.addTo(this.map);
         
-        // Add layer control
         L.control.layers({
             'OpenStreetMap': osmLayer,
             'Satellite': satelliteLayer
         }).addTo(this.map);
         
-        // Handle window resize
         window.addEventListener('resize', () => {
             setTimeout(() => {
                 if (this.map) {
@@ -219,7 +199,6 @@ class TelemetryApp {
         try {
             const filePaths = await window.electronAPI.selectVideoFiles();
             if (filePaths && filePaths.length > 0) {
-                // Add new files to existing list
                 this.videoFilePaths = [...this.videoFilePaths, ...filePaths];
                 this.updateVideoFilesList();
                 this.checkFilesReady();
@@ -243,7 +222,6 @@ class TelemetryApp {
                 <span class="video-remove" data-index="${index}">×</span>
             `;
             
-            // Add remove functionality
             listItem.querySelector('.video-remove').addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.removeVideoFile(index);
@@ -252,7 +230,6 @@ class TelemetryApp {
             videoList.appendChild(listItem);
         });
 
-        // Update file count display
         const fileCount = document.getElementById('video-file-count');
         if (this.videoFilePaths.length > 0) {
             fileCount.textContent = `${this.videoFilePaths.length} video file(s) selected`;
@@ -278,9 +255,7 @@ class TelemetryApp {
     }
 
     selectVideoInList(item) {
-        // Remove previous selection
         document.querySelectorAll('.video-item').forEach(el => el.classList.remove('selected'));
-        // Add selection to clicked item
         item.classList.add('selected');
     }
 
@@ -297,7 +272,6 @@ class TelemetryApp {
         try {
             this.showLoading(true, 'Processing files...');
             
-            // Convert FIT to GPX if needed
             let gpxFilePath = this.fitFilePath;
             if (this.fitFilePath.toLowerCase().endsWith('.fit')) {
                 console.log('Converting FIT to GPX...');
@@ -305,36 +279,46 @@ class TelemetryApp {
                 gpxFilePath = await window.electronAPI.convertFitToGpx(this.fitFilePath);
             }
             
-            // Parse GPX data
             console.log('Parsing GPX data...');
             this.showLoading(true, 'Parsing GPS data...');
             this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
             console.log(`Loaded ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
             
-            // Stitch videos together if multiple files
             if (this.videoFilePaths.length > 1) {
-                console.log('Stitching videos together...');
-                this.showLoading(true, 'Stitching videos together...');
-                this.stitchedVideoPath = await window.electronAPI.stitchVideos(this.videoFilePaths);
+                console.log('Checking video compatibility...');
+                this.showLoading(true, 'Checking video compatibility...');
+                
+                try {
+                    this.showLoading(true, 'Stitching videos together (fast mode)...');
+                    this.stitchedVideoPath = await window.electronAPI.stitchVideos(this.videoFilePaths);
+                    console.log('Videos stitched successfully');
+                } catch (stitchError) {
+                    if (stitchError.message.includes('not compatible') || 
+                        stitchError.message.includes('different formats') ||
+                        stitchError.message.includes('different codec')) {
+                        
+                        this.showVideoCompatibilityError(stitchError.message);
+                        this.showLoading(false);
+                        return;
+                    } else {
+                        throw stitchError;
+                    }
+                }
             } else {
                 this.stitchedVideoPath = this.videoFilePaths[0];
             }
             
-            // Get video metadata
             console.log('Getting video metadata...');
             this.showLoading(true, 'Getting video metadata...');
             this.videoMetadata = await window.electronAPI.getVideoMetadata(this.stitchedVideoPath);
             console.log('Video metadata:', this.videoMetadata);
             
-            // Process and interpolate GPS data
             this.showLoading(true, 'Processing GPS data...');
             this.processGpsData();
             
-            // Load video
             const video = document.getElementById('video-player');
             video.src = `file://${this.stitchedVideoPath}`;
             
-            // Show main content
             document.getElementById('file-panel').style.display = 'none';
             document.getElementById('main-content').classList.remove('hidden');
             
@@ -346,12 +330,41 @@ class TelemetryApp {
         }
     }
 
+    showVideoCompatibilityError(message) {
+        const errorDialog = document.createElement('div');
+        errorDialog.className = 'error-dialog';
+        errorDialog.innerHTML = `
+            <div class="error-overlay">
+                <div class="error-content">
+                    <h3>Video Compatibility Issue</h3>
+                    <div class="error-message">
+                        <p>${message}</p>
+                    </div>
+                    <div class="error-suggestions">
+                        <h4>Suggestions:</h4>
+                        <ul>
+                            <li>Use videos from the same camera/device</li>
+                            <li>Ensure all videos have the same resolution (e.g., all 1080p or all 4K)</li>
+                            <li>Check that all videos use the same frame rate (e.g., all 30fps or all 60fps)</li>
+                            <li>Use a video converter to standardize your videos before importing</li>
+                            <li>Try processing one video at a time</li>
+                        </ul>
+                    </div>
+                    <div class="error-actions">
+                        <button class="btn secondary" onclick="window.electronAPI.openExternal('https://handbrake.fr/')">Download HandBrake (Free Converter)</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(errorDialog);
+    }
+
     processGpsData() {
         if (!this.gpxData || !this.gpxData.points.length) return;
         
         const validPoints = this.gpxData.validPoints;
         
-        // Calculate total distance using only valid points
         let totalDistance = 0;
         for (let i = 1; i < validPoints.length; i++) {
             const dist = this.calculateDistance(
@@ -363,17 +376,14 @@ class TelemetryApp {
         
         document.getElementById('total-distance').textContent = (totalDistance / 1000).toFixed(2);
         
-        // Create interpolated points based on video FPS
         this.interpolateGpsPoints();
-        
-        // Draw track on map using only valid points
         this.drawTrackOnMap();
     }
 
     interpolateGpsPoints() {
         if (!this.gpxData || !this.videoMetadata) return;
         
-        const points = this.gpxData.points; // Use all points for timing
+        const points = this.gpxData.points;
         const fps = this.videoMetadata.fps;
         const videoDuration = this.videoMetadata.duration;
         
@@ -384,10 +394,9 @@ class TelemetryApp {
         this.interpolatedPoints = [];
         
         for (let frame = 0; frame < totalFrames; frame++) {
-            const videoTime = (frame / fps) * 1000; // milliseconds
+            const videoTime = (frame / fps) * 1000;
             const gpsTime = startTime + videoTime + this.syncOffset;
             
-            // Find closest GPS points (using all points for timing accuracy)
             const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
             if (interpolatedPoint) {
                 interpolatedPoint.frame = frame;
@@ -400,7 +409,6 @@ class TelemetryApp {
     }
 
     interpolateGpsPoint(targetTime, points) {
-        // Find the two closest points in time
         let beforePoint = null;
         let afterPoint = null;
         
@@ -419,16 +427,13 @@ class TelemetryApp {
         if (!beforePoint) return this.createInterpolatedPoint(afterPoint);
         if (!afterPoint) return this.createInterpolatedPoint(beforePoint);
         
-        // Check if we have valid GPS data for interpolation
         const beforeValid = beforePoint.isValid;
         const afterValid = afterPoint.isValid;
         
-        // If neither point is valid, return null (will hold last valid position)
         if (!beforeValid && !afterValid) {
             return null;
         }
         
-        // If only one point is valid, use that one
         if (!beforeValid && afterValid) {
             return this.createInterpolatedPoint(afterPoint);
         }
@@ -436,7 +441,6 @@ class TelemetryApp {
             return this.createInterpolatedPoint(beforePoint);
         }
         
-        // Both points are valid - do linear interpolation
         const beforeTime = new Date(beforePoint.time).getTime();
         const afterTime = new Date(afterPoint.time).getTime();
         const ratio = (targetTime - beforeTime) / (afterTime - beforeTime);
@@ -448,7 +452,7 @@ class TelemetryApp {
                  beforePoint.ele + (afterPoint.ele - beforePoint.ele) * ratio : 
                  (beforePoint.ele !== null ? beforePoint.ele : afterPoint.ele),
             speed: beforePoint.speed !== null && afterPoint.speed !== null ? 
-                   beforePoint.speed + (afterPoint.speed - beforePoint.speed) * ratio : 
+                   beforePoint.speed + (afterPoint.speed - afterPoint.speed) * ratio : 
                    (beforePoint.speed !== null ? beforePoint.speed : afterPoint.speed),
             time: new Date(targetTime).toISOString(),
             isValid: true
@@ -469,12 +473,10 @@ class TelemetryApp {
     drawTrackOnMap() {
         if (!this.gpxData || !this.map) return;
         
-        // Remove existing track
         if (this.trackPolyline) {
             this.map.removeLayer(this.trackPolyline);
         }
         
-        // Create polyline from valid GPS points only
         const validPoints = this.gpxData.validPoints;
         if (validPoints.length === 0) {
             console.warn('No valid GPS points to draw track');
@@ -489,15 +491,12 @@ class TelemetryApp {
             opacity: 0.8
         }).addTo(this.map);
         
-        // Fit map to track bounds
         this.map.fitBounds(this.trackPolyline.getBounds());
         
-        // Add click handler for seeking
         this.trackPolyline.on('click', (e) => {
             this.seekToMapPosition(e.latlng);
         });
         
-        // Create current position marker using first valid point
         if (validPoints.length > 0) {
             const firstValidPoint = validPoints[0];
             this.currentPositionMarker = L.circleMarker([firstValidPoint.lat, firstValidPoint.lon], {
@@ -510,12 +509,10 @@ class TelemetryApp {
                 className: 'smooth-marker'
             }).addTo(this.map);
             
-            // Initialize smooth animation positions
             this.currentPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
             this.targetPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
             this.lastValidPosition = { lat: firstValidPoint.lat, lon: firstValidPoint.lon };
             
-            // Make marker draggable for seeking
             this.currentPositionMarker.on('mousedown', () => {
                 this.map.dragging.disable();
                 this.isDragging = true;
@@ -540,7 +537,6 @@ class TelemetryApp {
     seekToMapPosition(latlng) {
         if (!this.interpolatedPoints.length) return;
         
-        // Find closest valid interpolated point
         let closestPoint = null;
         let closestDistance = Infinity;
         
@@ -572,7 +568,7 @@ class TelemetryApp {
     }
 
     onVideoTimeUpdate() {
-        if (this.isDragging) return; // Don't update during manual seeking
+        if (this.isDragging) return;
         
         const video = document.getElementById('video-player');
         const currentTimeMs = video.currentTime * 1000;
@@ -580,13 +576,11 @@ class TelemetryApp {
         
         this.currentFrame = currentFrame;
         
-        // Update UI
         this.updateTimeDisplay();
         this.updateVideoStats();
         this.updateMarkerPosition(currentFrame);
         this.updateTelemetryDisplay(currentFrame);
         
-        // Update timeline slider
         const slider = document.getElementById('timeline-slider');
         slider.value = video.currentTime;
     }
@@ -598,17 +592,14 @@ class TelemetryApp {
         
         if (point) {
             if (point.isValid) {
-                // Update target position for smooth animation
                 this.targetPosition = { lat: point.lat, lon: point.lon };
                 this.lastValidPosition = { lat: point.lat, lon: point.lon };
                 
-                // If not playing or dragging, jump immediately
                 if (!this.isPlaying || this.isDragging) {
                     this.currentPosition = { lat: point.lat, lon: point.lon };
                     this.currentPositionMarker.setLatLng([point.lat, point.lon]);
                 }
             } else {
-                // Invalid GPS data - hold at last valid position
                 if (this.lastValidPosition) {
                     this.targetPosition = { lat: this.lastValidPosition.lat, lon: this.lastValidPosition.lon };
                     
@@ -619,7 +610,6 @@ class TelemetryApp {
                 }
             }
             
-            // Add popup with current data
             const popupContent = `
                 <div style="color: white;">
                     <strong>Frame:</strong> ${frame}<br>
@@ -701,10 +691,8 @@ class TelemetryApp {
         const offsetInput = document.getElementById('offset-input');
         this.syncOffset = parseInt(offsetInput.value) || 0;
         
-        // Recalculate interpolated points with new offset
         this.interpolateGpsPoints();
         
-        // Update current position
         const video = document.getElementById('video-player');
         const currentFrame = Math.floor(video.currentTime * this.videoMetadata.fps);
         this.updateMarkerPosition(currentFrame);
@@ -714,7 +702,7 @@ class TelemetryApp {
     }
 
     calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371000; // Earth's radius in meters
+        const R = 6371000;
         const dLat = this.toRadians(lat2 - lat1);
         const dLon = this.toRadians(lon2 - lon1);
         const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -742,12 +730,25 @@ class TelemetryApp {
     }
 
     showError(message) {
-        alert('Error: ' + message);
-        console.error(message);
+        if (message.includes('not compatible') || message.includes('different formats')) {
+            this.showVideoCompatibilityError(message);
+        } else {
+            alert('Error: ' + message);
+            console.error(message);
+        }
     }
 }
 
-// Initialize the app when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new TelemetryApp();
+  new TelemetryApp();
+
+  const okButton = document.createElement('button');
+  okButton.className = 'btn primary';
+  okButton.textContent = 'OK';
+  okButton.onclick = function () {
+    this.closest('.error-dialog')?.remove();
+  };
+
+  // Append the button somewhere, for example to the body or a specific container
+  document.body.appendChild(okButton);
 });

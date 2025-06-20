@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
@@ -35,13 +35,12 @@ function createWindow() {
       enableRemoteModule: false,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, 'assets', 'icon.png'), // Optional icon
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     title: 'Telemetry Sync'
   });
 
   mainWindow.loadFile('index.html');
 
-  // Open DevTools in development
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
@@ -81,7 +80,7 @@ ipcMain.handle('select-fit-file', async () => {
 // Updated video file selection to support multiple files
 ipcMain.handle('select-video-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile', 'multiSelections'], // Enable multiple file selection
+    properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Video Files', extensions: ['mp4', 'avi', 'mov', 'mkv', 'webm'] },
       { name: 'All Files', extensions: ['*'] }
@@ -99,13 +98,11 @@ ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
   return new Promise((resolve, reject) => {
     const gpxFilePath = fitFilePath.replace(/\.fit$/i, '.gpx');
     
-    // Check if already converted
     if (fs.existsSync(gpxFilePath)) {
       resolve(gpxFilePath);
       return;
     }
     
-    // Use bundled GPSBabel if available, otherwise try system GPSBabel
     const gpsbabelExecutable = fs.existsSync(gpsbabelPath) ? gpsbabelPath : 'gpsbabel';
     
     const gpsbabel = spawn(gpsbabelExecutable, [
@@ -135,32 +132,90 @@ ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
   });
 });
 
-// New function to stitch multiple videos together
-ipcMain.handle('stitch-videos', async (event, videoPaths) => {
+// Check if videos can be concatenated without re-encoding
+async function checkVideoCompatibility(videoPaths) {
   return new Promise((resolve, reject) => {
-    if (!videoPaths || videoPaths.length === 0) {
-      reject(new Error('No video files provided'));
-      return;
-    }
+    let videoSpecs = [];
+    let processed = 0;
+    let hasError = false;
     
-    if (videoPaths.length === 1) {
-      resolve(videoPaths[0]);
-      return;
-    }
-    
-    // Create temporary directory for intermediate files
+    videoPaths.forEach((videoPath, index) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err || hasError) {
+          if (!hasError) {
+            hasError = true;
+            reject(new Error(`Cannot analyze video file: ${videoPath}`));
+          }
+          return;
+        }
+        
+        const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+        if (!videoStream) {
+          if (!hasError) {
+            hasError = true;
+            reject(new Error(`No video stream found in: ${videoPath}`));
+          }
+          return;
+        }
+        
+        videoSpecs[index] = {
+          codec: videoStream.codec_name,
+          width: videoStream.width,
+          height: videoStream.height,
+          fps: videoStream.r_frame_rate,
+          pixelFormat: videoStream.pix_fmt,
+          profile: videoStream.profile
+        };
+        
+        processed++;
+        if (processed === videoPaths.length && !hasError) {
+          const firstSpec = videoSpecs[0];
+          const allCompatible = videoSpecs.every(spec => 
+            spec.codec === firstSpec.codec &&
+            spec.width === firstSpec.width &&
+            spec.height === firstSpec.height &&
+            spec.fps === firstSpec.fps &&
+            spec.pixelFormat === firstSpec.pixelFormat &&
+            spec.profile === firstSpec.profile
+          );
+          
+          if (!allCompatible) {
+            const incompatibilities = [];
+            videoSpecs.forEach((spec, i) => {
+              if (spec.codec !== firstSpec.codec) incompatibilities.push(`Video ${i+1}: different codec (${spec.codec} vs ${firstSpec.codec})`);
+              if (spec.width !== firstSpec.width || spec.height !== firstSpec.height) {
+                incompatibilities.push(`Video ${i+1}: different resolution (${spec.width}x${spec.height} vs ${firstSpec.width}x${firstSpec.height})`);
+              }
+              if (spec.fps !== firstSpec.fps) incompatibilities.push(`Video ${i+1}: different frame rate (${spec.fps} vs ${firstSpec.fps})`);
+            });
+            
+            reject(new Error(`Videos are not compatible for fast stitching:\n${incompatibilities.join('\n')}\n\nPlease ensure all videos have identical format, resolution, frame rate, and codec.`));
+            return;
+          }
+          
+          resolve(true);
+        }
+      });
+    });
+  });
+}
+
+// Fast concatenation without re-encoding
+async function performFastConcat(videoPaths) {
+  return new Promise((resolve, reject) => {
     const tempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    // Create output path
     const timestamp = Date.now();
     const outputPath = path.join(tempDir, `stitched_video_${timestamp}.mp4`);
-    
-    // Create concat list file for FFmpeg
     const concatListPath = path.join(tempDir, `concat_list_${timestamp}.txt`);
-    const concatContent = videoPaths.map(videoPath => `file '${videoPath.replace(/\\/g, '/')}'`).join('\n');
+    
+    const concatContent = videoPaths.map(videoPath => {
+      const escapedPath = videoPath.replace(/\\/g, '/').replace(/'/g, "\\'");
+      return `file '${escapedPath}'`;
+    }).join('\n');
     
     try {
       fs.writeFileSync(concatListPath, concatContent, 'utf8');
@@ -169,41 +224,56 @@ ipcMain.handle('stitch-videos', async (event, videoPaths) => {
       return;
     }
     
-    // Use FFmpeg to concatenate videos
-    const ffmpegCommand = ffmpeg()
+    const startTime = Date.now();
+    let lastProgress = 0;
+    
+    ffmpeg()
       .input(concatListPath)
       .inputOptions(['-f', 'concat', '-safe', '0'])
-      .videoCodec('libx264')
-      .audioCodec('aac')
-      .outputOptions([
-        '-preset', 'fast',
-        '-crf', '23',
-        '-movflags', '+faststart'
-      ])
+      .outputOptions(['-c', 'copy', '-avoid_negative_ts', 'make_zero'])
       .output(outputPath)
       .on('start', (commandLine) => {
-        console.log('FFmpeg command:', commandLine);
+        console.log('Fast concat started - CPU usage should be minimal');
+        
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('stitch-progress', {
+            percent: 0,
+            mode: 'fast_concat',
+            message: 'Starting fast concatenation...'
+          });
+        }
       })
       .on('progress', (progress) => {
-        console.log('Stitching progress:', progress.percent ? progress.percent.toFixed(2) + '%' : 'Processing...');
-        // Send progress to renderer if needed
+        const elapsed = (Date.now() - startTime) / 1000;
+        const percent = progress.percent || 0;
+        
+        if (percent - lastProgress >= 5) {
+          console.log(`Fast concat: ${percent.toFixed(1)}% (${elapsed.toFixed(1)}s)`);
+          lastProgress = percent;
+        }
+        
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('stitch-progress', progress);
+          mainWindow.webContents.send('stitch-progress', {
+            percent: percent,
+            mode: 'fast_concat',
+            elapsed: elapsed,
+            message: `Concatenating videos: ${percent.toFixed(1)}%`
+          });
         }
       })
       .on('end', () => {
-        console.log('Video stitching completed');
-        // Clean up concat list file
+        const totalTime = (Date.now() - startTime) / 1000;
+        console.log(`Fast concat completed in ${totalTime.toFixed(1)} seconds`);
+        
         try {
           fs.unlinkSync(concatListPath);
         } catch (err) {
           console.warn('Failed to clean up concat list file:', err.message);
         }
+        
         resolve(outputPath);
       })
       .on('error', (err) => {
-        console.error('FFmpeg error:', err);
-        // Clean up files on error
         try {
           if (fs.existsSync(concatListPath)) {
             fs.unlinkSync(concatListPath);
@@ -214,15 +284,44 @@ ipcMain.handle('stitch-videos', async (event, videoPaths) => {
         } catch (cleanupErr) {
           console.warn('Failed to clean up files after error:', cleanupErr.message);
         }
-        reject(new Error(`Video stitching failed: ${err.message}`));
-      });
+        
+        reject(new Error(`Fast concatenation failed: ${err.message}`));
+      })
+      .run();
+  });
+}
+
+// Fast concatenation only - reject incompatible videos
+ipcMain.handle('stitch-videos', async (event, videoPaths) => {
+  return new Promise(async (resolve, reject) => {
+    if (!videoPaths || videoPaths.length === 0) {
+      reject(new Error('No video files provided'));
+      return;
+    }
     
-    // Start the FFmpeg process
-    ffmpegCommand.run();
+    if (videoPaths.length === 1) {
+      resolve(videoPaths[0]);
+      return;
+    }
+    
+    try {
+      const areCompatible = await checkVideoCompatibility(videoPaths);
+      
+      if (!areCompatible) {
+        reject(new Error('Videos have different formats/codecs. Please ensure all videos have the same format, resolution, and codec for fast stitching.'));
+        return;
+      }
+      
+      const outputPath = await performFastConcat(videoPaths);
+      resolve(outputPath);
+      
+    } catch (error) {
+      reject(error);
+    }
   });
 });
 
-// Enhanced video metadata function to handle potential issues with stitched videos
+// Get video metadata
 ipcMain.handle('get-video-metadata', async (event, videoPath) => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
@@ -239,11 +338,10 @@ ipcMain.handle('get-video-metadata', async (event, videoPath) => {
         return;
       }
       
-      // Calculate FPS more safely
-      let fps = 30; // default fallback
+      let fps = 30;
       if (videoStream.r_frame_rate) {
         try {
-          fps = eval(videoStream.r_frame_rate); // Convert fraction to decimal
+          fps = eval(videoStream.r_frame_rate);
         } catch (e) {
           console.warn('Failed to parse frame rate, using default 30fps');
         }
@@ -268,7 +366,7 @@ ipcMain.handle('get-video-metadata', async (event, videoPath) => {
   });
 });
 
-// Parse GPX file (unchanged)
+// Parse GPX file
 ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
   try {
     const xmlData = fs.readFileSync(gpxFilePath, 'utf8');
@@ -285,7 +383,6 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
       throw new Error('No track segments found in GPX file');
     }
     
-    // Handle both single and multiple track segments
     const segments = Array.isArray(gpx.trk) ? gpx.trk : [gpx.trk];
     const allPoints = [];
     
@@ -302,7 +399,6 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
             const lat = parseFloat(point["@_lat"]);
             const lon = parseFloat(point["@_lon"]);
             
-            // Check if coordinates are valid (not 0,0 and within reasonable bounds)
             const isValidCoordinate = (
               lat !== 0 || lon !== 0
             ) && (
@@ -322,15 +418,13 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
       });
     });
     
-    // Sort by time
     allPoints.sort((a, b) => new Date(a.time) - new Date(b.time));
     
-    // Separate valid points for track drawing
     const validPoints = allPoints.filter(point => point.isValid);
     
     return {
-      points: allPoints, // All points including invalid ones for timing
-      validPoints: validPoints, // Only valid points for track drawing
+      points: allPoints,
+      validPoints: validPoints,
       totalPoints: allPoints.length,
       validPointsCount: validPoints.length,
       startTime: allPoints.length > 0 ? allPoints[0].time : null,
@@ -341,12 +435,16 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
   }
 });
 
+// Open external URL
+ipcMain.handle('open-external', async (event, url) => {
+  shell.openExternal(url);
+});
+
 // Clean up temporary files on app quit
 app.on('before-quit', () => {
   const tempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
   if (fs.existsSync(tempDir)) {
     try {
-      // Clean up old stitched videos (older than 1 hour)
       const files = fs.readdirSync(tempDir);
       const oneHourAgo = Date.now() - (60 * 60 * 1000);
       
