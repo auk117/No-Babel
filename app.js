@@ -1,10 +1,9 @@
 class TelemetryApp {
     constructor() {
-
         this.followDot = false;
-
         this.fitFilePath = null;
-        this.videoFilePath = null;
+        this.videoFilePaths = []; // Changed to array for multiple videos
+        this.stitchedVideoPath = null; // Path to the stitched video
         this.gpxData = null;
         this.videoMetadata = null;
         this.syncOffset = 0; // milliseconds
@@ -36,7 +35,8 @@ class TelemetryApp {
     initializeUI() {
         // File selection
         document.getElementById('select-fit-btn').addEventListener('click', () => this.selectFitFile());
-        document.getElementById('select-video-btn').addEventListener('click', () => this.selectVideoFile());
+        document.getElementById('select-video-btn').addEventListener('click', () => this.selectVideoFiles());
+        document.getElementById('remove-video-btn').addEventListener('click', () => this.removeSelectedVideo());
         document.getElementById('load-btn').addEventListener('click', () => this.loadAndSync());
         
         // Video controls
@@ -55,6 +55,12 @@ class TelemetryApp {
             this.followDot = e.target.checked;
         });
 
+        // Video list events
+        document.getElementById('video-list').addEventListener('click', (e) => {
+            if (e.target.classList.contains('video-item')) {
+                this.selectVideoInList(e.target);
+            }
+        });
         
         // Start smooth animation loop
         this.startSmoothAnimation();
@@ -155,7 +161,6 @@ class TelemetryApp {
         if (this.followDot && this.map) {
             this.map.setView([this.currentPosition.lat, this.currentPosition.lon]);
         }
-
         
         this.lastUpdateTime = currentTime;
     }
@@ -210,55 +215,124 @@ class TelemetryApp {
         }
     }
 
-    async selectVideoFile() {
+    async selectVideoFiles() {
         try {
-            const filePath = await window.electronAPI.selectVideoFile();
-            if (filePath) {
-                this.videoFilePath = filePath;
-                const fileName = filePath.split(/[\\/]/).pop();
-                document.getElementById('video-file-name').textContent = fileName;
-                document.getElementById('video-file-name').classList.add('selected');
+            const filePaths = await window.electronAPI.selectVideoFiles();
+            if (filePaths && filePaths.length > 0) {
+                // Add new files to existing list
+                this.videoFilePaths = [...this.videoFilePaths, ...filePaths];
+                this.updateVideoFilesList();
                 this.checkFilesReady();
             }
         } catch (error) {
-            this.showError('Failed to select video file: ' + error.message);
+            this.showError('Failed to select video files: ' + error.message);
         }
+    }
+
+    updateVideoFilesList() {
+        const videoList = document.getElementById('video-list');
+        videoList.innerHTML = '';
+        
+        this.videoFilePaths.forEach((filePath, index) => {
+            const fileName = filePath.split(/[\\/]/).pop();
+            const listItem = document.createElement('div');
+            listItem.className = 'video-item';
+            listItem.dataset.index = index;
+            listItem.innerHTML = `
+                <span class="video-name">${fileName}</span>
+                <span class="video-remove" data-index="${index}">×</span>
+            `;
+            
+            // Add remove functionality
+            listItem.querySelector('.video-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.removeVideoFile(index);
+            });
+            
+            videoList.appendChild(listItem);
+        });
+
+        // Update file count display
+        const fileCount = document.getElementById('video-file-count');
+        if (this.videoFilePaths.length > 0) {
+            fileCount.textContent = `${this.videoFilePaths.length} video file(s) selected`;
+            fileCount.classList.add('selected');
+        } else {
+            fileCount.textContent = '';
+            fileCount.classList.remove('selected');
+        }
+    }
+
+    removeVideoFile(index) {
+        this.videoFilePaths.splice(index, 1);
+        this.updateVideoFilesList();
+        this.checkFilesReady();
+    }
+
+    removeSelectedVideo() {
+        const selectedItem = document.querySelector('.video-item.selected');
+        if (selectedItem) {
+            const index = parseInt(selectedItem.dataset.index);
+            this.removeVideoFile(index);
+        }
+    }
+
+    selectVideoInList(item) {
+        // Remove previous selection
+        document.querySelectorAll('.video-item').forEach(el => el.classList.remove('selected'));
+        // Add selection to clicked item
+        item.classList.add('selected');
     }
 
     checkFilesReady() {
         const loadBtn = document.getElementById('load-btn');
-        if (this.fitFilePath && this.videoFilePath) {
+        if (this.fitFilePath && this.videoFilePaths.length > 0) {
             loadBtn.disabled = false;
+        } else {
+            loadBtn.disabled = true;
         }
     }
 
     async loadAndSync() {
         try {
-            this.showLoading(true);
+            this.showLoading(true, 'Processing files...');
             
             // Convert FIT to GPX if needed
             let gpxFilePath = this.fitFilePath;
             if (this.fitFilePath.toLowerCase().endsWith('.fit')) {
                 console.log('Converting FIT to GPX...');
+                this.showLoading(true, 'Converting FIT to GPX...');
                 gpxFilePath = await window.electronAPI.convertFitToGpx(this.fitFilePath);
             }
             
             // Parse GPX data
             console.log('Parsing GPX data...');
+            this.showLoading(true, 'Parsing GPS data...');
             this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
             console.log(`Loaded ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
             
+            // Stitch videos together if multiple files
+            if (this.videoFilePaths.length > 1) {
+                console.log('Stitching videos together...');
+                this.showLoading(true, 'Stitching videos together...');
+                this.stitchedVideoPath = await window.electronAPI.stitchVideos(this.videoFilePaths);
+            } else {
+                this.stitchedVideoPath = this.videoFilePaths[0];
+            }
+            
             // Get video metadata
             console.log('Getting video metadata...');
-            this.videoMetadata = await window.electronAPI.getVideoMetadata(this.videoFilePath);
+            this.showLoading(true, 'Getting video metadata...');
+            this.videoMetadata = await window.electronAPI.getVideoMetadata(this.stitchedVideoPath);
             console.log('Video metadata:', this.videoMetadata);
             
             // Process and interpolate GPS data
+            this.showLoading(true, 'Processing GPS data...');
             this.processGpsData();
             
             // Load video
             const video = document.getElementById('video-player');
-            video.src = `file://${this.videoFilePath}`;
+            video.src = `file://${this.stitchedVideoPath}`;
             
             // Show main content
             document.getElementById('file-panel').style.display = 'none';
@@ -654,10 +728,14 @@ class TelemetryApp {
         return degrees * (Math.PI / 180);
     }
 
-    showLoading(show) {
+    showLoading(show, message = 'Processing files...') {
         const loading = document.getElementById('loading');
+        const loadingText = document.getElementById('loading-text');
         if (show) {
             loading.classList.remove('hidden');
+            if (loadingText) {
+                loadingText.textContent = message;
+            }
         } else {
             loading.classList.add('hidden');
         }
