@@ -16,14 +16,20 @@
                 <button id="select-fit-btn" class="btn primary">Select FIT/GPX File</button>
                 <span id="fit-file-name" class="file-name"></span>
             </div>
+            
             <div class="file-selection">
-                <button id="select-video-btn" class="btn primary">Select Video File</button>
-                <span id="video-file-name" class="file-name"></span>
+                <div class="video-selection-header">
+                    <button id="select-video-btn" class="btn primary">Add Video Files</button>
+                    <button id="remove-video-btn" class="btn secondary">Remove Selected</button>
+                    <span id="video-file-count" class="file-name"></span>
+                </div>
+                <div id="video-list" class="video-list"></div>
             </div>
+            
             <button id="load-btn" class="btn success" disabled>Load & Sync</button>
             <div id="loading" class="loading hidden">
                 <div class="spinner"></div>
-                <span>Processing files...</span>
+                <span id="loading-text">Processing files...</span>
             </div>
         </div>
 
@@ -44,8 +50,6 @@
                     <label>Follow Dot:</label>
                     <input type="checkbox" id="follow-toggle">
                 </div>
-
-
             </div>
 
             <!-- Video and Map Container -->

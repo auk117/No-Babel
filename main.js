@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
+const os = require('os');
 
 // Get paths for bundled tools
 const isDev = process.env.NODE_ENV === 'development';
@@ -77,9 +78,10 @@ ipcMain.handle('select-fit-file', async () => {
   return null;
 });
 
-ipcMain.handle('select-video-file', async () => {
+// Updated video file selection to support multiple files
+ipcMain.handle('select-video-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'], // Enable multiple file selection
     filters: [
       { name: 'Video Files', extensions: ['mp4', 'avi', 'mov', 'mkv', 'webm'] },
       { name: 'All Files', extensions: ['*'] }
@@ -87,7 +89,7 @@ ipcMain.handle('select-video-file', async () => {
   });
   
   if (!result.canceled && result.filePaths.length > 0) {
-    return result.filePaths[0];
+    return result.filePaths;
   }
   return null;
 });
@@ -133,7 +135,94 @@ ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
   });
 });
 
-// Get video metadata
+// New function to stitch multiple videos together
+ipcMain.handle('stitch-videos', async (event, videoPaths) => {
+  return new Promise((resolve, reject) => {
+    if (!videoPaths || videoPaths.length === 0) {
+      reject(new Error('No video files provided'));
+      return;
+    }
+    
+    if (videoPaths.length === 1) {
+      resolve(videoPaths[0]);
+      return;
+    }
+    
+    // Create temporary directory for intermediate files
+    const tempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // Create output path
+    const timestamp = Date.now();
+    const outputPath = path.join(tempDir, `stitched_video_${timestamp}.mp4`);
+    
+    // Create concat list file for FFmpeg
+    const concatListPath = path.join(tempDir, `concat_list_${timestamp}.txt`);
+    const concatContent = videoPaths.map(videoPath => `file '${videoPath.replace(/\\/g, '/')}'`).join('\n');
+    
+    try {
+      fs.writeFileSync(concatListPath, concatContent, 'utf8');
+    } catch (err) {
+      reject(new Error(`Failed to create concat list: ${err.message}`));
+      return;
+    }
+    
+    // Use FFmpeg to concatenate videos
+    const ffmpegCommand = ffmpeg()
+      .input(concatListPath)
+      .inputOptions(['-f', 'concat', '-safe', '0'])
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .outputOptions([
+        '-preset', 'fast',
+        '-crf', '23',
+        '-movflags', '+faststart'
+      ])
+      .output(outputPath)
+      .on('start', (commandLine) => {
+        console.log('FFmpeg command:', commandLine);
+      })
+      .on('progress', (progress) => {
+        console.log('Stitching progress:', progress.percent ? progress.percent.toFixed(2) + '%' : 'Processing...');
+        // Send progress to renderer if needed
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('stitch-progress', progress);
+        }
+      })
+      .on('end', () => {
+        console.log('Video stitching completed');
+        // Clean up concat list file
+        try {
+          fs.unlinkSync(concatListPath);
+        } catch (err) {
+          console.warn('Failed to clean up concat list file:', err.message);
+        }
+        resolve(outputPath);
+      })
+      .on('error', (err) => {
+        console.error('FFmpeg error:', err);
+        // Clean up files on error
+        try {
+          if (fs.existsSync(concatListPath)) {
+            fs.unlinkSync(concatListPath);
+          }
+          if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+          }
+        } catch (cleanupErr) {
+          console.warn('Failed to clean up files after error:', cleanupErr.message);
+        }
+        reject(new Error(`Video stitching failed: ${err.message}`));
+      });
+    
+    // Start the FFmpeg process
+    ffmpegCommand.run();
+  });
+});
+
+// Enhanced video metadata function to handle potential issues with stitched videos
 ipcMain.handle('get-video-metadata', async (event, videoPath) => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
@@ -145,20 +234,41 @@ ipcMain.handle('get-video-metadata', async (event, videoPath) => {
       const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
       const creationTime = metadata.format.tags?.creation_time;
       
+      if (!videoStream) {
+        reject(new Error('No video stream found in file'));
+        return;
+      }
+      
+      // Calculate FPS more safely
+      let fps = 30; // default fallback
+      if (videoStream.r_frame_rate) {
+        try {
+          fps = eval(videoStream.r_frame_rate); // Convert fraction to decimal
+        } catch (e) {
+          console.warn('Failed to parse frame rate, using default 30fps');
+        }
+      } else if (videoStream.avg_frame_rate) {
+        try {
+          fps = eval(videoStream.avg_frame_rate);
+        } catch (e) {
+          console.warn('Failed to parse average frame rate, using default 30fps');
+        }
+      }
+      
       resolve({
         duration: metadata.format.duration,
-        fps: eval(videoStream.r_frame_rate), // Convert fraction to decimal
+        fps: fps,
         width: videoStream.width,
         height: videoStream.height,
-        creationTime: creationTime
+        creationTime: creationTime,
+        bitrate: metadata.format.bit_rate,
+        size: metadata.format.size
       });
     });
   });
 });
 
-// Updated section for main.js - replace the parse-gpx handler
-
-// Parse GPX file
+// Parse GPX file (unchanged)
 ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
   try {
     const xmlData = fs.readFileSync(gpxFilePath, 'utf8');
@@ -228,5 +338,27 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
     };
   } catch (error) {
     throw new Error(`Failed to parse GPX: ${error.message}`);
+  }
+});
+
+// Clean up temporary files on app quit
+app.on('before-quit', () => {
+  const tempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
+  if (fs.existsSync(tempDir)) {
+    try {
+      // Clean up old stitched videos (older than 1 hour)
+      const files = fs.readdirSync(tempDir);
+      const oneHourAgo = Date.now() - (60 * 60 * 1000);
+      
+      files.forEach(file => {
+        const filePath = path.join(tempDir, file);
+        const stats = fs.statSync(filePath);
+        if (stats.mtime.getTime() < oneHourAgo) {
+          fs.unlinkSync(filePath);
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to clean up temporary files:', err.message);
+    }
   }
 });
