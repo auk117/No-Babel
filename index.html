@@ -67,19 +67,35 @@
                 <!-- Map Panel -->
                 <div id="map-panel" class="content-panel">
                     <div id="map"></div>
-                    <div id="telemetry-info" class="info-panel">
-                        <h3>Telemetry Data</h3>
-                        <div id="gps-stats">
-                            <div>Lat: <span id="current-lat">--</span></div>
-                            <div>Lon: <span id="current-lon">--</span></div>
-                            <div>Speed: <span id="current-speed">--</span> m/s</div>
-                            <div>Elevation: <span id="current-elevation">--</span> m</div>
-                            <div>Distance: <span id="total-distance">--</span> km</div>
-                        </div>
+                    <div id="distance-graph-panel" class="graph-panel">
+                        <canvas id="distance-graph" width="800" height="120"></canvas>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Movable Telemetry Widget -->
+        <div id="telemetry-widget" class="telemetry-widget hidden">
+            <div class="widget-header">
+                <span class="widget-title">Telemetry Data</span>
+                <div class="widget-controls">
+                    <button id="collapse-widget" class="widget-btn">−</button>
+                    <button id="close-widget" class="widget-btn">×</button>
+                </div>
+            </div>
+            <div class="widget-content">
+                <div id="gps-stats">
+                    <div>Lat: <span id="current-lat">--</span></div>
+                    <div>Lon: <span id="current-lon">--</span></div>
+                    <div>Speed: <span id="current-speed">--</span> m/s</div>
+                    <div>Elevation: <span id="current-elevation">--</span> m</div>
+                    <div>Distance: <span id="total-distance">--</span> km</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Widget Toggle Button -->
+        <button id="show-telemetry-btn" class="floating-btn hidden">📊</button>
     </div>
 
     <!-- Scripts -->
