@@ -426,7 +426,7 @@ body {
 /* Video Panel */
 #video-player {
     width: 100%;
-    height: calc(100% - 120px);
+    height: 100%;
     background: black;
     object-fit: contain;
 }
@@ -453,19 +453,19 @@ body {
     color: #007acc;
 }
 
-#video-stats, #gps-stats {
+#gps-stats {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
     font-size: 14px;
 }
 
-#video-stats div, #gps-stats div {
+#gps-stats div {
     display: flex;
     justify-content: space-between;
 }
 
-#video-stats span, #gps-stats span {
+#gps-stats span {
     font-weight: bold;
     color: #4CAF50;
 }
@@ -552,7 +552,7 @@ body {
         height: 100px;
     }
     
-    #video-stats, #gps-stats {
+    #gps-stats {
         grid-template-columns: 1fr;
     }
     

@@ -562,7 +562,6 @@ class TelemetryApp {
         const slider = document.getElementById('timeline-slider');
         
         slider.max = video.duration;
-        document.getElementById('video-fps').textContent = this.videoMetadata.fps.toFixed(2);
         
         this.updateTimeDisplay();
     }
@@ -577,7 +576,6 @@ class TelemetryApp {
         this.currentFrame = currentFrame;
         
         this.updateTimeDisplay();
-        this.updateVideoStats();
         this.updateMarkerPosition(currentFrame);
         this.updateTelemetryDisplay(currentFrame);
         
@@ -635,11 +633,6 @@ class TelemetryApp {
             document.getElementById('current-speed').textContent = point.speed ? point.speed.toFixed(2) : '--';
             document.getElementById('current-elevation').textContent = point.ele ? point.ele.toFixed(1) : '--';
         }
-    }
-
-    updateVideoStats() {
-        document.getElementById('current-frame').textContent = this.currentFrame;
-        document.getElementById('video-time').textContent = this.formatTime(document.getElementById('video-player').currentTime);
     }
 
     updateTimeDisplay() {
