@@ -449,7 +449,7 @@ body {
 }
 
 #distance-graph {
-    width: 100%;
+    width: 90%;
     height: 100%;
     cursor: pointer;
 }
