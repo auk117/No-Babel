@@ -227,11 +227,14 @@ class TelemetryApp {
         const graphWidth = width - margin.left - margin.right;
         const graphHeight = height - margin.top - margin.bottom;
         
-        // Get valid speed data
-        const validSpeedPoints = this.interpolatedPoints.filter(p => p && p.isValid && p.speed !== null);
+        // Get all interpolated points (not just valid speed points)
+        const allPoints = this.interpolatedPoints.filter(p => p);
+        if (allPoints.length === 0) return;
+        
+        // Find speed range from valid speed data only, but draw across all time points
+        const validSpeedPoints = allPoints.filter(p => p.isValid && p.speed !== null);
         if (validSpeedPoints.length === 0) return;
         
-        // Find speed range - keep original approach but ensure no negative values
         const speeds = validSpeedPoints.map(p => p.speed);
         const minSpeed = Math.max(0, Math.min(...speeds)); // Don't go below 0
         const maxSpeed = Math.max(...speeds);
@@ -263,19 +266,21 @@ class TelemetryApp {
             this.graphCtx.stroke();
         }
         
-        // Draw speed line - fixed to stay within bounds
+        // Draw speed line across ALL time points, using 0 for missing speed data
         this.graphCtx.strokeStyle = '#007acc';
         this.graphCtx.lineWidth = 2;
         this.graphCtx.beginPath();
         
         let firstPoint = true;
-        for (const point of validSpeedPoints) {
-            // Ensure x stays within graph bounds
+        for (const point of allPoints) {
+            // Use the full time range for x-axis
             const x = Math.max(margin.left, Math.min(width - margin.right, 
                 margin.left + (point.frame / (this.interpolatedPoints.length - 1)) * graphWidth));
-            // Ensure y stays within graph bounds
+            
+            // Use 0 for speed if no valid speed data, otherwise use actual speed
+            const speedValue = (point.isValid && point.speed !== null) ? point.speed : 0;
             const y = Math.max(margin.top, Math.min(height - margin.bottom,
-                height - margin.bottom - ((point.speed - minSpeed) / speedRange) * graphHeight));
+                height - margin.bottom - ((speedValue - minSpeed) / speedRange) * graphHeight));
             
             if (firstPoint) {
                 this.graphCtx.moveTo(x, y);
@@ -321,7 +326,7 @@ class TelemetryApp {
         this.graphCtx.fillText('Speed (m/s)', 0, 0);
         this.graphCtx.restore();
         
-        // Y-axis speed scale labels - fixed to show proper positive values
+        // Y-axis speed scale labels - based on actual speed range
         this.graphCtx.textAlign = 'right';
         for (let i = 0; i <= 5; i++) {
             const speed = minSpeed + (i / 5) * speedRange;
