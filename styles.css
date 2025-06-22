@@ -321,7 +321,7 @@ body {
     height: 200px;
     background: #1a1a1a;
     border-top: 1px solid #444;
-    padding: 20px;
+    padding: 10px;
     flex-shrink: 0;
 }
 
@@ -330,6 +330,7 @@ body {
     height: 100%;
     background: #2d2d2d;
     border-radius: 6px;
+    cursor: pointer;
 }
 
 #time-display {

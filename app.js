@@ -223,7 +223,7 @@ class TelemetryApp {
         this.graphCtx.clearRect(0, 0, width, height);
         
         // Add margin
-        const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const margin = { top: 20, right: 20, bottom: 50, left: 60 };
         const graphWidth = width - margin.left - margin.right;
         const graphHeight = height - margin.top - margin.bottom;
         
@@ -231,11 +231,17 @@ class TelemetryApp {
         const validSpeedPoints = this.interpolatedPoints.filter(p => p && p.isValid && p.speed !== null);
         if (validSpeedPoints.length === 0) return;
         
-        // Find speed range
+        // Find speed range with padding
         const speeds = validSpeedPoints.map(p => p.speed);
         const minSpeed = Math.min(...speeds);
         const maxSpeed = Math.max(...speeds);
-        const speedRange = maxSpeed - minSpeed || 1; // Avoid division by zero
+        const speedRange = maxSpeed - minSpeed || 1;
+        
+        // Add 10% padding to speed range so lines don't touch edges
+        const speedPadding = speedRange * 0.1;
+        const displayMinSpeed = minSpeed - speedPadding;
+        const displayMaxSpeed = maxSpeed + speedPadding;
+        const displaySpeedRange = displayMaxSpeed - displayMinSpeed;
         
         // Draw background
         this.graphCtx.fillStyle = '#2d2d2d';
@@ -245,7 +251,7 @@ class TelemetryApp {
         this.graphCtx.strokeStyle = '#444';
         this.graphCtx.lineWidth = 1;
         
-        // Vertical grid lines
+        // Vertical grid lines (time)
         for (let i = 0; i <= 10; i++) {
             const x = margin.left + (i / 10) * graphWidth;
             this.graphCtx.beginPath();
@@ -254,7 +260,7 @@ class TelemetryApp {
             this.graphCtx.stroke();
         }
         
-        // Horizontal grid lines
+        // Horizontal grid lines (speed)
         for (let i = 0; i <= 5; i++) {
             const y = margin.top + (i / 5) * graphHeight;
             this.graphCtx.beginPath();
@@ -270,8 +276,9 @@ class TelemetryApp {
         
         let firstPoint = true;
         for (const point of validSpeedPoints) {
-            const x = margin.left + (point.frame / this.interpolatedPoints.length) * graphWidth;
-            const y = height - margin.bottom - ((point.speed - minSpeed) / speedRange) * graphHeight;
+            // Use the point's actual position in the full dataset for x-axis
+            const x = margin.left + (point.frame / (this.interpolatedPoints.length - 1)) * graphWidth;
+            const y = height - margin.bottom - ((point.speed - displayMinSpeed) / displaySpeedRange) * graphHeight;
             
             if (firstPoint) {
                 this.graphCtx.moveTo(x, y);
@@ -283,8 +290,8 @@ class TelemetryApp {
         this.graphCtx.stroke();
         
         // Draw current position indicator
-        if (this.currentFrame !== undefined) {
-            const x = margin.left + (this.currentFrame / this.interpolatedPoints.length) * graphWidth;
+        if (this.currentFrame !== undefined && this.interpolatedPoints.length > 0) {
+            const x = margin.left + (this.currentFrame / (this.interpolatedPoints.length - 1)) * graphWidth;
             this.graphCtx.strokeStyle = '#ff6b6b';
             this.graphCtx.lineWidth = 2;
             this.graphCtx.beginPath();
@@ -298,20 +305,29 @@ class TelemetryApp {
         this.graphCtx.font = '12px Arial';
         this.graphCtx.textAlign = 'center';
         
-        // X-axis label
+        // X-axis time labels
+        const videoDuration = this.videoMetadata ? this.videoMetadata.duration : 0;
+        for (let i = 0; i <= 10; i++) {
+            const x = margin.left + (i / 10) * graphWidth;
+            const timeSeconds = (i / 10) * videoDuration;
+            const timeLabel = this.formatTime(timeSeconds);
+            this.graphCtx.fillText(timeLabel, x, height - margin.bottom + 15);
+        }
+        
+        // X-axis title
         this.graphCtx.fillText('Time', width / 2, height - 5);
         
-        // Y-axis label
+        // Y-axis title
         this.graphCtx.save();
         this.graphCtx.translate(15, height / 2);
         this.graphCtx.rotate(-Math.PI / 2);
         this.graphCtx.fillText('Speed (m/s)', 0, 0);
         this.graphCtx.restore();
         
-        // Speed scale labels
+        // Y-axis speed scale labels
         this.graphCtx.textAlign = 'right';
         for (let i = 0; i <= 5; i++) {
-            const speed = minSpeed + (i / 5) * speedRange;
+            const speed = displayMinSpeed + (i / 5) * displaySpeedRange;
             const y = height - margin.bottom - (i / 5) * graphHeight;
             this.graphCtx.fillText(speed.toFixed(1), margin.left - 5, y + 4);
         }
@@ -324,13 +340,13 @@ class TelemetryApp {
         const rect = canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         
-        const margin = { left: 50, right: 20 };
+        const margin = { left: 60, right: 20 };
         const graphWidth = rect.width - margin.left - margin.right;
         const clickX = x - margin.left;
         
         if (clickX >= 0 && clickX <= graphWidth) {
             const progress = clickX / graphWidth;
-            const targetFrame = Math.floor(progress * this.interpolatedPoints.length);
+            const targetFrame = Math.floor(progress * (this.interpolatedPoints.length - 1));
             
             const video = document.getElementById('video-player');
             video.currentTime = (targetFrame / this.videoMetadata.fps);
