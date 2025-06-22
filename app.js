@@ -882,8 +882,10 @@ class TelemetryApp {
         }
     }
 }
-
+/*
 document.addEventListener('DOMContentLoaded', () => {
     new TelemetryApp();
 });="btn primary" onclick="this.closest('.error-dialog').remove()">OK</button>
                         <button class
+
+*/
