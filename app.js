@@ -564,25 +564,55 @@ class TelemetryApp {
         const fps = this.videoMetadata.fps;
         const videoDuration = this.videoMetadata.duration;
         
+        // Use video duration to determine total frames, not GPS data duration
+        const totalFrames = Math.floor(videoDuration * fps);
+        
         const startTime = new Date(points[0].time).getTime();
         const endTime = new Date(points[points.length - 1].time).getTime();
-        const totalFrames = Math.floor(videoDuration * fps);
         
         this.interpolatedPoints = [];
         
         for (let frame = 0; frame < totalFrames; frame++) {
-            const videoTime = (frame / fps) * 1000;
+            const videoTime = (frame / fps) * 1000; // milliseconds
             const gpsTime = startTime + videoTime + this.syncOffset;
             
-            const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
-            if (interpolatedPoint) {
-                interpolatedPoint.frame = frame;
-                interpolatedPoint.videoTime = videoTime;
-                this.interpolatedPoints.push(interpolatedPoint);
+            // Check if we're within GPS data range
+            if (gpsTime >= startTime && gpsTime <= endTime) {
+                // Within GPS range - interpolate normally
+                const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
+                if (interpolatedPoint) {
+                    interpolatedPoint.frame = frame;
+                    interpolatedPoint.videoTime = videoTime;
+                    this.interpolatedPoints.push(interpolatedPoint);
+                } else {
+                    // No valid interpolation but we're in range - create invalid point
+                    this.interpolatedPoints.push({
+                        lat: null,
+                        lon: null,
+                        ele: null,
+                        speed: null,
+                        time: new Date(gpsTime).toISOString(),
+                        isValid: false,
+                        frame: frame,
+                        videoTime: videoTime
+                    });
+                }
+            } else {
+                // Outside GPS range - create point with no GPS data
+                this.interpolatedPoints.push({
+                    lat: null,
+                    lon: null,
+                    ele: null,
+                    speed: null,
+                    time: new Date(gpsTime).toISOString(),
+                    isValid: false,
+                    frame: frame,
+                    videoTime: videoTime
+                });
             }
         }
         
-        console.log(`Created ${this.interpolatedPoints.length} interpolated points`);
+        console.log(`Created ${this.interpolatedPoints.length} interpolated points for ${videoDuration.toFixed(1)}s video`);
     }
 
     interpolateGpsPoint(targetTime, points) {
