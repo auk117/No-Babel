@@ -110,11 +110,6 @@ class TelemetryApp {
         }
     }
 
-    updateGraphPosition(frame) {
-        this.currentFrame = frame;
-        this.drawGraph(); // Redraw graph with updated position indicator
-    }
-
     handleSplitterUp() {
         this.isResizing = false;
         document.removeEventListener('mousemove', this.handleSplitterMove);
@@ -513,6 +508,7 @@ class TelemetryApp {
                         </ul>
                     </div>
                     <div class="error-actions">
+                        <button class="btn primary" onclick="this.closest('.error-dialog').remove()">OK</button>
                         <button class="btn secondary" onclick="window.electronAPI.openExternal('https://handbrake.fr/')">Download HandBrake (Free Converter)</button>
                     </div>
                 </div>
@@ -777,7 +773,6 @@ class TelemetryApp {
                     <strong>GPS Valid:</strong> ${point.isValid ? 'Yes' : 'No'}<br>
                     <strong>Lat:</strong> ${point.isValid ? point.lat.toFixed(6) : 'Invalid'}<br>
                     <strong>Lon:</strong> ${point.isValid ? point.lon.toFixed(6) : 'Invalid'}<br>
-                    <strong>Speed:</strong> ${point.speed ? point.speed.toFixed(2) + ' m/s' : 'N/A'}<br>
                     <strong>Elevation:</strong> ${point.ele ? point.ele.toFixed(1) + ' m' : 'N/A'}
                 </div>
             `;
@@ -798,7 +793,10 @@ class TelemetryApp {
         }
     }
 
-    // Remove updateVideoStats method since we no longer display video stats
+    updateGraphPosition(frame) {
+        this.currentFrame = frame;
+        this.drawGraph(); // Redraw graph with updated position indicator
+    }
 
     updateTimeDisplay() {
         const video = document.getElementById('video-player');
@@ -882,10 +880,7 @@ class TelemetryApp {
         }
     }
 }
-/*
+
 document.addEventListener('DOMContentLoaded', () => {
     new TelemetryApp();
-});="btn primary" onclick="this.closest('.error-dialog').remove()">OK</button>
-                        <button class
-
-*/
+});
