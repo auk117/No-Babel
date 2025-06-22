@@ -14,7 +14,6 @@ class TelemetryApp {
         this.trackPolyline = null;
         this.currentPositionMarker = null;
         this.interpolatedPoints = [];
-        this.distancePoints = [];
         
         this.animationFrameId = null;
         this.lastUpdateTime = 0;
@@ -26,21 +25,14 @@ class TelemetryApp {
         this.startX = 0;
         this.startVideoWidth = 0;
         
-        // Widget dragging
-        this.isDraggingWidget = false;
-        this.widgetStartX = 0;
-        this.widgetStartY = 0;
-        this.widgetStartLeft = 0;
-        this.widgetStartTop = 0;
-        
-        // Graph canvas
-        this.graphCanvas = null;
+        // Graph properties
+        this.graph = null;
         this.graphCtx = null;
         
         this.initializeUI();
         this.initializeMap();
         this.initializeSplitter();
-        this.initializeWidget();
+        this.initializeGraph();
     }
 
     initializeUI() {
@@ -51,7 +43,6 @@ class TelemetryApp {
         
         document.getElementById('play-pause-btn').addEventListener('click', () => this.togglePlayPause());
         document.getElementById('timeline-slider').addEventListener('input', (e) => this.seekToPosition(e.target.value));
-        document.getElementById('sync-btn').addEventListener('click', () => this.applySyncOffset());
         
         const video = document.getElementById('video-player');
         video.addEventListener('loadedmetadata', () => this.onVideoLoaded());
@@ -70,80 +61,6 @@ class TelemetryApp {
         });
         
         this.startSmoothAnimation();
-    }
-
-    initializeWidget() {
-        const widget = document.getElementById('telemetry-widget');
-        const header = widget.querySelector('.widget-header');
-        const collapseBtn = document.getElementById('collapse-widget');
-        const closeBtn = document.getElementById('close-widget');
-        const showBtn = document.getElementById('show-telemetry-btn');
-        const content = widget.querySelector('.widget-content');
-
-        // Make widget draggable
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('widget-btn')) return;
-            
-            this.isDraggingWidget = true;
-            this.widgetStartX = e.clientX;
-            this.widgetStartY = e.clientY;
-            
-            const rect = widget.getBoundingClientRect();
-            this.widgetStartLeft = rect.left;
-            this.widgetStartTop = rect.top;
-            
-            document.addEventListener('mousemove', this.handleWidgetMove.bind(this));
-            document.addEventListener('mouseup', this.handleWidgetUp.bind(this));
-            
-            widget.style.cursor = 'grabbing';
-            e.preventDefault();
-        });
-
-        // Collapse/expand functionality
-        collapseBtn.addEventListener('click', () => {
-            const isCollapsed = content.style.display === 'none';
-            content.style.display = isCollapsed ? 'block' : 'none';
-            collapseBtn.textContent = isCollapsed ? '−' : '+';
-        });
-
-        // Close widget
-        closeBtn.addEventListener('click', () => {
-            widget.classList.add('hidden');
-            showBtn.classList.remove('hidden');
-        });
-
-        // Show widget
-        showBtn.addEventListener('click', () => {
-            widget.classList.remove('hidden');
-            showBtn.classList.add('hidden');
-        });
-    }
-
-    handleWidgetMove(e) {
-        if (!this.isDraggingWidget) return;
-        
-        const widget = document.getElementById('telemetry-widget');
-        const deltaX = e.clientX - this.widgetStartX;
-        const deltaY = e.clientY - this.widgetStartY;
-        
-        const newLeft = this.widgetStartLeft + deltaX;
-        const newTop = this.widgetStartTop + deltaY;
-        
-        // Keep widget within viewport bounds
-        const maxLeft = window.innerWidth - widget.offsetWidth;
-        const maxTop = window.innerHeight - widget.offsetHeight;
-        
-        widget.style.left = Math.max(0, Math.min(newLeft, maxLeft)) + 'px';
-        widget.style.top = Math.max(0, Math.min(newTop, maxTop)) + 'px';
-    }
-
-    handleWidgetUp() {
-        this.isDraggingWidget = false;
-        document.removeEventListener('mousemove', this.handleWidgetMove);
-        document.removeEventListener('mouseup', this.handleWidgetUp);
-        
-        const widget = document.getElementById('telemetry-widget');
-        widget.style.cursor = 'default';
     }
 
     initializeSplitter() {
@@ -191,13 +108,11 @@ class TelemetryApp {
                 this.map.invalidateSize();
             }, 100);
         }
-        
-        // Redraw graph when resizing
-        if (this.graphCanvas) {
-            setTimeout(() => {
-                this.drawDistanceGraph();
-            }, 100);
-        }
+    }
+
+    updateGraphPosition(frame) {
+        this.currentFrame = frame;
+        this.drawGraph(); // Redraw graph with updated position indicator
     }
 
     handleSplitterUp() {
@@ -211,13 +126,6 @@ class TelemetryApp {
         if (this.map) {
             setTimeout(() => {
                 this.map.invalidateSize();
-            }, 200);
-        }
-        
-        // Redraw graph after resizing
-        if (this.graphCanvas) {
-            setTimeout(() => {
-                this.drawDistanceGraph();
             }, 200);
         }
     }
@@ -277,46 +185,160 @@ class TelemetryApp {
                 if (this.map) {
                     this.map.invalidateSize();
                 }
-                if (this.graphCanvas) {
-                    this.drawDistanceGraph();
-                }
+                this.resizeGraph();
             }, 100);
         });
     }
 
     initializeGraph() {
-        this.graphCanvas = document.getElementById('distance-graph');
-        this.graphCtx = this.graphCanvas.getContext('2d');
+        const canvas = document.getElementById('telemetry-graph');
+        this.graphCtx = canvas.getContext('2d');
+        this.resizeGraph();
         
-        // Make graph canvas responsive
-        const resizeCanvas = () => {
-            const panel = document.getElementById('distance-graph-panel');
-            this.graphCanvas.width = panel.offsetWidth;
-            this.graphCanvas.height = 120;
-            this.drawDistanceGraph();
-        };
-        
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-        
-        // Add click interaction for seeking
-        this.graphCanvas.addEventListener('click', (e) => {
-            this.handleGraphClick(e);
+        // Add click handler for seeking
+        canvas.addEventListener('click', (e) => {
+            this.seekToGraphPosition(e);
         });
     }
 
-    handleGraphClick(e) {
-        if (!this.videoMetadata || !this.distancePoints.length) return;
+    resizeGraph() {
+        const canvas = document.getElementById('telemetry-graph');
+        const container = document.getElementById('graph-container');
+        const rect = container.getBoundingClientRect();
         
-        const rect = this.graphCanvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const graphWidth = this.graphCanvas.width - 80; // Account for margins
-        const clickRatio = (x - 40) / graphWidth; // 40px left margin
+        // Set canvas size with device pixel ratio for crisp rendering
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = (rect.width - 40) * dpr; // Account for padding
+        canvas.height = (rect.height - 40) * dpr;
+        canvas.style.width = (rect.width - 40) + 'px';
+        canvas.style.height = (rect.height - 40) + 'px';
         
-        if (clickRatio >= 0 && clickRatio <= 1) {
-            const targetTime = clickRatio * this.videoMetadata.duration;
+        this.graphCtx.scale(dpr, dpr);
+        this.drawGraph();
+    }
+
+    drawGraph() {
+        if (!this.interpolatedPoints.length || !this.graphCtx) return;
+        
+        const canvas = document.getElementById('telemetry-graph');
+        const width = canvas.style.width ? parseInt(canvas.style.width) : canvas.width;
+        const height = canvas.style.height ? parseInt(canvas.style.height) : canvas.height;
+        
+        // Clear canvas
+        this.graphCtx.clearRect(0, 0, width, height);
+        
+        // Add margin
+        const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const graphWidth = width - margin.left - margin.right;
+        const graphHeight = height - margin.top - margin.bottom;
+        
+        // Get valid speed data
+        const validSpeedPoints = this.interpolatedPoints.filter(p => p && p.isValid && p.speed !== null);
+        if (validSpeedPoints.length === 0) return;
+        
+        // Find speed range
+        const speeds = validSpeedPoints.map(p => p.speed);
+        const minSpeed = Math.min(...speeds);
+        const maxSpeed = Math.max(...speeds);
+        const speedRange = maxSpeed - minSpeed || 1; // Avoid division by zero
+        
+        // Draw background
+        this.graphCtx.fillStyle = '#2d2d2d';
+        this.graphCtx.fillRect(0, 0, width, height);
+        
+        // Draw grid lines
+        this.graphCtx.strokeStyle = '#444';
+        this.graphCtx.lineWidth = 1;
+        
+        // Vertical grid lines
+        for (let i = 0; i <= 10; i++) {
+            const x = margin.left + (i / 10) * graphWidth;
+            this.graphCtx.beginPath();
+            this.graphCtx.moveTo(x, margin.top);
+            this.graphCtx.lineTo(x, height - margin.bottom);
+            this.graphCtx.stroke();
+        }
+        
+        // Horizontal grid lines
+        for (let i = 0; i <= 5; i++) {
+            const y = margin.top + (i / 5) * graphHeight;
+            this.graphCtx.beginPath();
+            this.graphCtx.moveTo(margin.left, y);
+            this.graphCtx.lineTo(width - margin.right, y);
+            this.graphCtx.stroke();
+        }
+        
+        // Draw speed line
+        this.graphCtx.strokeStyle = '#007acc';
+        this.graphCtx.lineWidth = 2;
+        this.graphCtx.beginPath();
+        
+        let firstPoint = true;
+        for (const point of validSpeedPoints) {
+            const x = margin.left + (point.frame / this.interpolatedPoints.length) * graphWidth;
+            const y = height - margin.bottom - ((point.speed - minSpeed) / speedRange) * graphHeight;
+            
+            if (firstPoint) {
+                this.graphCtx.moveTo(x, y);
+                firstPoint = false;
+            } else {
+                this.graphCtx.lineTo(x, y);
+            }
+        }
+        this.graphCtx.stroke();
+        
+        // Draw current position indicator
+        if (this.currentFrame !== undefined) {
+            const x = margin.left + (this.currentFrame / this.interpolatedPoints.length) * graphWidth;
+            this.graphCtx.strokeStyle = '#ff6b6b';
+            this.graphCtx.lineWidth = 2;
+            this.graphCtx.beginPath();
+            this.graphCtx.moveTo(x, margin.top);
+            this.graphCtx.lineTo(x, height - margin.bottom);
+            this.graphCtx.stroke();
+        }
+        
+        // Draw labels
+        this.graphCtx.fillStyle = '#ccc';
+        this.graphCtx.font = '12px Arial';
+        this.graphCtx.textAlign = 'center';
+        
+        // X-axis label
+        this.graphCtx.fillText('Time', width / 2, height - 5);
+        
+        // Y-axis label
+        this.graphCtx.save();
+        this.graphCtx.translate(15, height / 2);
+        this.graphCtx.rotate(-Math.PI / 2);
+        this.graphCtx.fillText('Speed (m/s)', 0, 0);
+        this.graphCtx.restore();
+        
+        // Speed scale labels
+        this.graphCtx.textAlign = 'right';
+        for (let i = 0; i <= 5; i++) {
+            const speed = minSpeed + (i / 5) * speedRange;
+            const y = height - margin.bottom - (i / 5) * graphHeight;
+            this.graphCtx.fillText(speed.toFixed(1), margin.left - 5, y + 4);
+        }
+    }
+
+    seekToGraphPosition(event) {
+        if (!this.interpolatedPoints.length) return;
+        
+        const canvas = document.getElementById('telemetry-graph');
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        
+        const margin = { left: 50, right: 20 };
+        const graphWidth = rect.width - margin.left - margin.right;
+        const clickX = x - margin.left;
+        
+        if (clickX >= 0 && clickX <= graphWidth) {
+            const progress = clickX / graphWidth;
+            const targetFrame = Math.floor(progress * this.interpolatedPoints.length);
+            
             const video = document.getElementById('video-player');
-            video.currentTime = targetTime;
+            video.currentTime = (targetFrame / this.videoMetadata.fps);
         }
     }
 
@@ -462,10 +484,6 @@ class TelemetryApp {
             document.getElementById('file-panel').style.display = 'none';
             document.getElementById('main-content').classList.remove('hidden');
             
-            // Show telemetry widget and initialize graph
-            document.getElementById('telemetry-widget').classList.remove('hidden');
-            this.initializeGraph();
-            
             this.showLoading(false);
             
         } catch (error) {
@@ -510,156 +528,19 @@ class TelemetryApp {
         const validPoints = this.gpxData.validPoints;
         
         let totalDistance = 0;
-        this.distancePoints = [{ time: 0, distance: 0 }]; // Start at origin
-        
         for (let i = 1; i < validPoints.length; i++) {
             const dist = this.calculateDistance(
                 validPoints[i-1].lat, validPoints[i-1].lon,
                 validPoints[i].lat, validPoints[i].lon
             );
             totalDistance += dist;
-            
-            // Calculate time offset from start
-            const startTime = new Date(validPoints[0].time).getTime();
-            const currentTime = new Date(validPoints[i].time).getTime();
-            const timeOffsetSeconds = (currentTime - startTime) / 1000;
-            
-            this.distancePoints.push({
-                time: timeOffsetSeconds,
-                distance: totalDistance / 1000 // Convert to km
-            });
         }
         
         document.getElementById('total-distance').textContent = (totalDistance / 1000).toFixed(2);
         
         this.interpolateGpsPoints();
         this.drawTrackOnMap();
-    }
-
-    drawDistanceGraph() {
-        if (!this.graphCtx || !this.distancePoints.length || !this.videoMetadata) return;
-        
-        const canvas = this.graphCanvas;
-        const ctx = this.graphCtx;
-        const width = canvas.width;
-        const height = canvas.height;
-        
-        // Clear canvas
-        ctx.clearRect(0, 0, width, height);
-        
-        // Set up margins
-        const margin = { top: 20, right: 20, bottom: 30, left: 40 };
-        const graphWidth = width - margin.left - margin.right;
-        const graphHeight = height - margin.top - margin.bottom;
-        
-        // Find max values for scaling
-        const maxTime = this.videoMetadata.duration;
-        const maxDistance = Math.max(...this.distancePoints.map(p => p.distance));
-        
-        // Draw background
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, width, height);
-        
-        // Draw grid lines
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 1;
-        
-        // Vertical grid lines (time)
-        const timeSteps = 10;
-        for (let i = 0; i <= timeSteps; i++) {
-            const x = margin.left + (i / timeSteps) * graphWidth;
-            ctx.beginPath();
-            ctx.moveTo(x, margin.top);
-            ctx.lineTo(x, height - margin.bottom);
-            ctx.stroke();
-        }
-        
-        // Horizontal grid lines (distance)
-        const distSteps = 5;
-        for (let i = 0; i <= distSteps; i++) {
-            const y = margin.top + (i / distSteps) * graphHeight;
-            ctx.beginPath();
-            ctx.moveTo(margin.left, y);
-            ctx.lineTo(width - margin.right, y);
-            ctx.stroke();
-        }
-        
-        // Draw the distance curve
-        ctx.strokeStyle = '#4CAF50';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        
-        let firstPoint = true;
-        for (const point of this.distancePoints) {
-            const x = margin.left + (point.time / maxTime) * graphWidth;
-            const y = height - margin.bottom - (point.distance / maxDistance) * graphHeight;
-            
-            if (firstPoint) {
-                ctx.moveTo(x, y);
-                firstPoint = false;
-            } else {
-                ctx.lineTo(x, y);
-            }
-        }
-        ctx.stroke();
-        
-        // Draw current position marker
-        const video = document.getElementById('video-player');
-        if (video && !isNaN(video.currentTime)) {
-            const currentTime = video.currentTime;
-            const currentX = margin.left + (currentTime / maxTime) * graphWidth;
-            
-            // Find current distance by interpolation
-            let currentDistance = 0;
-            for (let i = 1; i < this.distancePoints.length; i++) {
-                if (this.distancePoints[i].time >= currentTime) {
-                    const prev = this.distancePoints[i - 1];
-                    const curr = this.distancePoints[i];
-                    const ratio = (currentTime - prev.time) / (curr.time - prev.time);
-                    currentDistance = prev.distance + (curr.distance - prev.distance) * ratio;
-                    break;
-                }
-            }
-            
-            const currentY = height - margin.bottom - (currentDistance / maxDistance) * graphHeight;
-            
-            // Draw vertical line
-            ctx.strokeStyle = '#007acc';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(currentX, margin.top);
-            ctx.lineTo(currentX, height - margin.bottom);
-            ctx.stroke();
-            
-            // Draw dot
-            ctx.fillStyle = '#007acc';
-            ctx.beginPath();
-            ctx.arc(currentX, currentY, 4, 0, 2 * Math.PI);
-            ctx.fill();
-        }
-        
-        // Draw labels
-        ctx.fillStyle = '#fff';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        
-        // Time labels (bottom)
-        const timeLabels = 6;
-        for (let i = 0; i <= timeLabels; i++) {
-            const time = (i / timeLabels) * maxTime;
-            const x = margin.left + (i / timeLabels) * graphWidth;
-            const timeStr = this.formatTime(time);
-            ctx.fillText(timeStr, x, height - 5);
-        }
-        
-        // Distance labels (left)
-        ctx.textAlign = 'right';
-        const distLabels = 4;
-        for (let i = 0; i <= distLabels; i++) {
-            const dist = (i / distLabels) * maxDistance;
-            const y = height - margin.bottom - (i / distLabels) * graphHeight;
-            ctx.fillText(dist.toFixed(1) + 'km', margin.left - 10, y + 4);
-        }
+        this.drawGraph();
     }
 
     interpolateGpsPoints() {
@@ -844,7 +725,6 @@ class TelemetryApp {
         const slider = document.getElementById('timeline-slider');
         
         slider.max = video.duration;
-        
         this.updateTimeDisplay();
     }
 
@@ -860,14 +740,10 @@ class TelemetryApp {
         this.updateTimeDisplay();
         this.updateMarkerPosition(currentFrame);
         this.updateTelemetryDisplay(currentFrame);
+        this.updateGraphPosition(currentFrame);
         
         const slider = document.getElementById('timeline-slider');
         slider.value = video.currentTime;
-        
-        // Redraw graph to update current position marker
-        if (this.graphCanvas) {
-            this.drawDistanceGraph();
-        }
     }
 
     updateMarkerPosition(frame) {
@@ -922,6 +798,8 @@ class TelemetryApp {
         }
     }
 
+    // Remove updateVideoStats method since we no longer display video stats
+
     updateTimeDisplay() {
         const video = document.getElementById('video-player');
         const current = this.formatTime(video.currentTime);
@@ -967,24 +845,6 @@ class TelemetryApp {
         video.currentTime = parseFloat(value);
     }
 
-    applySyncOffset() {
-        const offsetInput = document.getElementById('offset-input');
-        this.syncOffset = parseInt(offsetInput.value) || 0;
-        
-        this.interpolateGpsPoints();
-        
-        const video = document.getElementById('video-player');
-        const currentFrame = Math.floor(video.currentTime * this.videoMetadata.fps);
-        this.updateMarkerPosition(currentFrame);
-        this.updateTelemetryDisplay(currentFrame);
-        
-        // Recalculate distance points and redraw graph
-        this.processGpsData();
-        this.drawDistanceGraph();
-        
-        console.log(`Applied sync offset: ${this.syncOffset}ms`);
-    }
-
     calculateDistance(lat1, lon1, lat2, lon2) {
         const R = 6371000;
         const dLat = this.toRadians(lat2 - lat1);
@@ -1024,15 +884,6 @@ class TelemetryApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  new TelemetryApp();
-
-  const okButton = document.createElement('button');
-  okButton.className = 'btn primary';
-  okButton.textContent = 'OK';
-  okButton.onclick = function () {
-    this.closest('.error-dialog')?.remove();
-  };
-
-  // Append the button somewhere, for example to the body or a specific container
-  document.body.appendChild(okButton);
-});
+    new TelemetryApp();
+});="btn primary" onclick="this.closest('.error-dialog').remove()">OK</button>
+                        <button class

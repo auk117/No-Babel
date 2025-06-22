@@ -15,7 +15,6 @@ body {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    position: relative;
 }
 
 /* File Selection Panel */
@@ -289,6 +288,7 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
+    height: 100vh;
 }
 
 #main-content.hidden {
@@ -304,6 +304,32 @@ body {
     gap: 15px;
     border-bottom: 1px solid #444;
     flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+/* Content Container - Video and Map */
+#content-container {
+    flex: 1;
+    display: flex;
+    background: #444;
+    position: relative;
+    min-height: 0; /* Important for flexbox */
+}
+
+/* Graph Container */
+#graph-container {
+    height: 200px;
+    background: #1a1a1a;
+    border-top: 1px solid #444;
+    padding: 20px;
+    flex-shrink: 0;
+}
+
+#telemetry-graph {
+    width: 100%;
+    height: 100%;
+    background: #2d2d2d;
+    border-radius: 6px;
 }
 
 #time-display {
@@ -371,6 +397,7 @@ body {
     display: flex;
     background: #444;
     position: relative;
+    min-height: 0;
 }
 
 .content-panel {
@@ -439,89 +466,24 @@ body {
     background: #2d2d2d;
 }
 
-/* Distance Graph Panel */
-.graph-panel {
+/* Info Panels */
+.info-panel {
     height: 120px;
     background: #2d2d2d;
-    border-top: 1px solid #444;
-    padding: 0;
-    overflow: hidden;
-}
-
-#distance-graph {
-    width: 100%;
-    height: 100%;
-    cursor: pointer;
-}
-
-/* Telemetry Widget */
-.telemetry-widget {
-    position: fixed;
-    top: 100px;
-    right: 20px;
-    width: 280px;
-    background: #2d2d2d;
-    border: 1px solid #444;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    z-index: 1000;
-    user-select: none;
-}
-
-.telemetry-widget.hidden {
-    display: none;
-}
-
-.widget-header {
-    background: #333;
-    padding: 12px 15px;
-    border-bottom: 1px solid #444;
-    border-radius: 8px 8px 0 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: grab;
-}
-
-.widget-header:active {
-    cursor: grabbing;
-}
-
-.widget-title {
-    font-weight: 600;
-    color: #007acc;
-    font-size: 14px;
-}
-
-.widget-controls {
-    display: flex;
-    gap: 5px;
-}
-
-.widget-btn {
-    background: none;
-    border: none;
-    color: #ccc;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 16px;
-    line-height: 1;
-    transition: background-color 0.2s ease;
-}
-
-.widget-btn:hover {
-    background: #555;
-    color: #fff;
-}
-
-.widget-content {
     padding: 15px;
+    border-top: 1px solid #444;
+    overflow-y: auto;
+}
+
+.info-panel h3 {
+    margin-bottom: 10px;
+    font-size: 16px;
+    color: #007acc;
 }
 
 #gps-stats {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
     font-size: 14px;
 }
@@ -529,39 +491,11 @@ body {
 #gps-stats div {
     display: flex;
     justify-content: space-between;
-    padding: 4px 0;
 }
 
 #gps-stats span {
     font-weight: bold;
     color: #4CAF50;
-}
-
-/* Floating Toggle Button */
-.floating-btn {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    background: #007acc;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-    transition: all 0.2s ease;
-    z-index: 999;
-}
-
-.floating-btn:hover {
-    background: #005a99;
-    transform: scale(1.1);
-}
-
-.floating-btn.hidden {
-    display: none;
 }
 
 /* Utility Classes */
@@ -635,14 +569,15 @@ body {
     }
     
     .content-panel {
-        height: 50vh;
+        flex: 1;
+        min-height: 0;
     }
     
     #video-player, #map {
         height: calc(100% - 100px);
     }
     
-    .graph-panel {
+    .info-panel {
         height: 100px;
     }
     
@@ -660,10 +595,8 @@ body {
         justify-content: center;
     }
     
-    .telemetry-widget {
-        width: 250px;
-        top: 80px;
-        right: 10px;
+    #graph-container {
+        height: 150px;
     }
 }
 
@@ -697,19 +630,5 @@ body {
     
     .error-actions .btn {
         width: 100%;
-    }
-    
-    .telemetry-widget {
-        width: 220px;
-        top: 60px;
-        right: 5px;
-    }
-    
-    .widget-content {
-        padding: 10px;
-    }
-    
-    #gps-stats {
-        font-size: 12px;
     }
 }
