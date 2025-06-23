@@ -213,7 +213,7 @@ class TelemetryApp {
     }
 
     drawGraph() {
-        if (!this.interpolatedPoints.length || !this.graphCtx) return;
+        if (!this.graphPoints || !this.graphPoints.length || !this.graphCtx) return;
         
         const canvas = document.getElementById('telemetry-graph');
         const width = canvas.style.width ? parseInt(canvas.style.width) : canvas.width;
@@ -227,16 +227,12 @@ class TelemetryApp {
         const graphWidth = width - margin.left - margin.right;
         const graphHeight = height - margin.top - margin.bottom;
         
-        // Get all interpolated points (not just valid speed points)
-        const allPoints = this.interpolatedPoints.filter(p => p);
-        if (allPoints.length === 0) return;
-        
-        // Find speed range from valid speed data only, but draw across all time points
-        const validSpeedPoints = allPoints.filter(p => p.isValid && p.speed !== null);
+        // Find speed range from valid speed data only
+        const validSpeedPoints = this.graphPoints.filter(p => p.isValid && p.speed !== null);
         if (validSpeedPoints.length === 0) return;
         
         const speeds = validSpeedPoints.map(p => p.speed);
-        const minSpeed = Math.max(0, Math.min(...speeds)); // Don't go below 0
+        const minSpeed = Math.max(0, Math.min(...speeds));
         const maxSpeed = Math.max(...speeds);
         const speedRange = maxSpeed - minSpeed || 1;
         
@@ -266,18 +262,18 @@ class TelemetryApp {
             this.graphCtx.stroke();
         }
         
-        // Draw speed line across ALL time points, using 0 for missing speed data
+        // Draw speed line using simplified graph points
         this.graphCtx.strokeStyle = '#007acc';
         this.graphCtx.lineWidth = 2;
         this.graphCtx.beginPath();
         
+        const videoDuration = this.videoMetadata ? this.videoMetadata.duration : 1;
         let firstPoint = true;
-        for (const point of allPoints) {
-            // Use the full time range for x-axis
+        
+        for (const point of this.graphPoints) {
             const x = Math.max(margin.left, Math.min(width - margin.right, 
-                margin.left + (point.frame / (this.interpolatedPoints.length - 1)) * graphWidth));
+                margin.left + (point.time / videoDuration) * graphWidth));
             
-            // Use 0 for speed if no valid speed data, otherwise use actual speed
             const speedValue = (point.isValid && point.speed !== null) ? point.speed : 0;
             const y = Math.max(margin.top, Math.min(height - margin.bottom,
                 height - margin.bottom - ((speedValue - minSpeed) / speedRange) * graphHeight));
@@ -291,9 +287,10 @@ class TelemetryApp {
         }
         this.graphCtx.stroke();
         
-        // Draw current position indicator
+        // Draw current position indicator using video time
         if (this.currentFrame !== undefined && this.interpolatedPoints.length > 0) {
-            const x = margin.left + (this.currentFrame / (this.interpolatedPoints.length - 1)) * graphWidth;
+            const currentVideoTime = this.currentFrame / this.videoMetadata.fps;
+            const x = margin.left + (currentVideoTime / videoDuration) * graphWidth;
             this.graphCtx.strokeStyle = '#ff6b6b';
             this.graphCtx.lineWidth = 2;
             this.graphCtx.beginPath();
@@ -308,7 +305,6 @@ class TelemetryApp {
         this.graphCtx.textAlign = 'center';
         
         // X-axis time labels
-        const videoDuration = this.videoMetadata ? this.videoMetadata.duration : 0;
         for (let i = 0; i <= 10; i++) {
             const x = margin.left + (i / 10) * graphWidth;
             const timeSeconds = (i / 10) * videoDuration;
@@ -326,7 +322,7 @@ class TelemetryApp {
         this.graphCtx.fillText('Speed (m/s)', 0, 0);
         this.graphCtx.restore();
         
-        // Y-axis speed scale labels - based on actual speed range
+        // Y-axis speed scale labels
         this.graphCtx.textAlign = 'right';
         for (let i = 0; i <= 5; i++) {
             const speed = minSpeed + (i / 5) * speedRange;
@@ -336,7 +332,7 @@ class TelemetryApp {
     }
 
     seekToGraphPosition(event) {
-        if (!this.interpolatedPoints.length) return;
+        if (!this.graphPoints || !this.graphPoints.length) return;
         
         const canvas = document.getElementById('telemetry-graph');
         const rect = canvas.getBoundingClientRect();
@@ -348,10 +344,11 @@ class TelemetryApp {
         
         if (clickX >= 0 && clickX <= graphWidth) {
             const progress = clickX / graphWidth;
-            const targetFrame = Math.floor(progress * (this.interpolatedPoints.length - 1));
+            const videoDuration = this.videoMetadata ? this.videoMetadata.duration : 1;
+            const targetTime = progress * videoDuration;
             
             const video = document.getElementById('video-player');
-            video.currentTime = (targetFrame / this.videoMetadata.fps);
+            video.currentTime = targetTime;
         }
     }
 
@@ -552,9 +549,49 @@ class TelemetryApp {
         
         document.getElementById('total-distance').textContent = (totalDistance / 1000).toFixed(2);
         
-        this.interpolateGpsPoints();
+        this.interpolateGpsPoints(); // Still needed for video sync
+        this.createGraphPoints(); // Separate, simpler points for graph
         this.drawTrackOnMap();
         this.drawGraph();
+    }
+
+    createGraphPoints() {
+        if (!this.gpxData || !this.videoMetadata) return;
+        
+        const points = this.gpxData.points;
+        const videoDuration = this.videoMetadata.duration;
+        const startTime = new Date(points[0].time).getTime();
+        const endTime = new Date(points[points.length - 1].time).getTime();
+        
+        // Create graph points at 1-second intervals (much fewer points)
+        const graphInterval = 1; // 1 second
+        const totalSeconds = Math.ceil(videoDuration);
+        
+        this.graphPoints = [];
+        
+        for (let second = 0; second < totalSeconds; second++) {
+            const videoTime = second * 1000; // milliseconds
+            const gpsTime = startTime + videoTime + this.syncOffset;
+            
+            if (gpsTime >= startTime && gpsTime <= endTime) {
+                // Within GPS range - get speed data
+                const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
+                this.graphPoints.push({
+                    time: second,
+                    speed: interpolatedPoint && interpolatedPoint.isValid ? interpolatedPoint.speed : null,
+                    isValid: interpolatedPoint ? interpolatedPoint.isValid : false
+                });
+            } else {
+                // Outside GPS range
+                this.graphPoints.push({
+                    time: second,
+                    speed: null,
+                    isValid: false
+                });
+            }
+        }
+        
+        console.log(`Created ${this.graphPoints.length} graph points for ${videoDuration.toFixed(1)}s video`);
     }
 
     interpolateGpsPoints() {
