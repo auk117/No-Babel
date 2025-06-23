@@ -28,6 +28,7 @@ class TelemetryApp {
         // Graph properties
         this.graph = null;
         this.graphCtx = null;
+        this.currentGraphType = 'speed'; // Default to speed graph
         
         this.initializeUI();
         this.initializeMap();
@@ -58,6 +59,13 @@ class TelemetryApp {
             if (e.target.classList.contains('video-item')) {
                 this.selectVideoInList(e.target);
             }
+        });
+
+        // Graph type selector
+        document.getElementById('graph-type-select').addEventListener('change', (e) => {
+            this.currentGraphType = e.target.value;
+            this.updateGraphTitle();
+            this.drawGraph();
         });
         
         this.startSmoothAnimation();
@@ -188,12 +196,22 @@ class TelemetryApp {
     initializeGraph() {
         const canvas = document.getElementById('telemetry-graph');
         this.graphCtx = canvas.getContext('2d');
+        this.updateGraphTitle();
         this.resizeGraph();
         
         // Add click handler for seeking
         canvas.addEventListener('click', (e) => {
             this.seekToGraphPosition(e);
         });
+    }
+
+    updateGraphTitle() {
+        const titleElement = document.getElementById('graph-title');
+        if (this.currentGraphType === 'speed') {
+            titleElement.textContent = 'Speed (m/s)';
+        } else {
+            titleElement.textContent = 'Elevation (m)';
+        }
     }
 
     resizeGraph() {
@@ -227,14 +245,32 @@ class TelemetryApp {
         const graphWidth = width - margin.left - margin.right;
         const graphHeight = height - margin.top - margin.bottom;
         
-        // Find speed range from valid speed data only
-        const validSpeedPoints = this.graphPoints.filter(p => p.isValid && p.speed !== null);
-        if (validSpeedPoints.length === 0) return;
+        // Get data based on current graph type
+        let validDataPoints, dataProperty, minValue, maxValue, yAxisLabel, defaultValue;
         
-        const speeds = validSpeedPoints.map(p => p.speed);
-        const minSpeed = Math.max(0, Math.min(...speeds));
-        const maxSpeed = Math.max(...speeds);
-        const speedRange = maxSpeed - minSpeed || 1;
+        if (this.currentGraphType === 'speed') {
+            validDataPoints = this.graphPoints.filter(p => p.isValid && p.speed !== null);
+            dataProperty = 'speed';
+            yAxisLabel = 'Speed (m/s)';
+            defaultValue = 0;
+            
+            if (validDataPoints.length === 0) return;
+            const speeds = validDataPoints.map(p => p.speed);
+            minValue = Math.max(0, Math.min(...speeds));
+            maxValue = Math.max(...speeds);
+        } else {
+            validDataPoints = this.graphPoints.filter(p => p.isValid && p.elevation !== null);
+            dataProperty = 'elevation';
+            yAxisLabel = 'Elevation (m)';
+            defaultValue = null; // Don't show 0 for missing elevation data
+            
+            if (validDataPoints.length === 0) return;
+            const elevations = validDataPoints.map(p => p.elevation);
+            minValue = Math.min(...elevations);
+            maxValue = Math.max(...elevations);
+        }
+        
+        const dataRange = maxValue - minValue || 1;
         
         // Draw background
         this.graphCtx.fillStyle = '#2d2d2d';
@@ -253,7 +289,7 @@ class TelemetryApp {
             this.graphCtx.stroke();
         }
         
-        // Horizontal grid lines (speed)
+        // Horizontal grid lines
         for (let i = 0; i <= 5; i++) {
             const y = margin.top + (i / 5) * graphHeight;
             this.graphCtx.beginPath();
@@ -262,7 +298,7 @@ class TelemetryApp {
             this.graphCtx.stroke();
         }
         
-        // Draw speed line using simplified graph points
+        // Draw data line
         this.graphCtx.strokeStyle = '#007acc';
         this.graphCtx.lineWidth = 2;
         this.graphCtx.beginPath();
@@ -274,9 +310,20 @@ class TelemetryApp {
             const x = Math.max(margin.left, Math.min(width - margin.right, 
                 margin.left + (point.time / videoDuration) * graphWidth));
             
-            const speedValue = (point.isValid && point.speed !== null) ? point.speed : 0;
+            let dataValue;
+            if (point.isValid && point[dataProperty] !== null) {
+                dataValue = point[dataProperty];
+            } else {
+                // For elevation, skip drawing if no data; for speed, use 0
+                if (this.currentGraphType === 'elevation') {
+                    continue;
+                } else {
+                    dataValue = defaultValue;
+                }
+            }
+            
             const y = Math.max(margin.top, Math.min(height - margin.bottom,
-                height - margin.bottom - ((speedValue - minSpeed) / speedRange) * graphHeight));
+                height - margin.bottom - ((dataValue - minValue) / dataRange) * graphHeight));
             
             if (firstPoint) {
                 this.graphCtx.moveTo(x, y);
@@ -319,15 +366,15 @@ class TelemetryApp {
         this.graphCtx.save();
         this.graphCtx.translate(15, height / 2);
         this.graphCtx.rotate(-Math.PI / 2);
-        this.graphCtx.fillText('Speed (m/s)', 0, 0);
+        this.graphCtx.fillText(yAxisLabel, 0, 0);
         this.graphCtx.restore();
         
-        // Y-axis speed scale labels
+        // Y-axis scale labels
         this.graphCtx.textAlign = 'right';
         for (let i = 0; i <= 5; i++) {
-            const speed = minSpeed + (i / 5) * speedRange;
+            const value = minValue + (i / 5) * dataRange;
             const y = height - margin.bottom - (i / 5) * graphHeight;
-            this.graphCtx.fillText(speed.toFixed(1), margin.left - 5, y + 4);
+            this.graphCtx.fillText(value.toFixed(1), margin.left - 5, y + 4);
         }
     }
 
@@ -574,11 +621,12 @@ class TelemetryApp {
             const gpsTime = startTime + videoTime + this.syncOffset;
             
             if (gpsTime >= startTime && gpsTime <= endTime) {
-                // Within GPS range - get speed data
+                // Within GPS range - get speed and elevation data
                 const interpolatedPoint = this.interpolateGpsPoint(gpsTime, points);
                 this.graphPoints.push({
                     time: second,
                     speed: interpolatedPoint && interpolatedPoint.isValid ? interpolatedPoint.speed : null,
+                    elevation: interpolatedPoint && interpolatedPoint.isValid ? interpolatedPoint.ele : null,
                     isValid: interpolatedPoint ? interpolatedPoint.isValid : false
                 });
             } else {
@@ -586,6 +634,7 @@ class TelemetryApp {
                 this.graphPoints.push({
                     time: second,
                     speed: null,
+                    elevation: null,
                     isValid: false
                 });
             }

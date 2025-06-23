@@ -76,6 +76,16 @@
 
             <!-- Graph Container -->
             <div id="graph-container">
+                <div id="graph-header">
+                    <div id="graph-controls">
+                        <label>Graph Type:</label>
+                        <select id="graph-type-select">
+                            <option value="speed">Speed</option>
+                            <option value="elevation">Elevation</option>
+                        </select>
+                    </div>
+                    <div id="graph-title">Speed (m/s)</div>
+                </div>
                 <canvas id="telemetry-graph"></canvas>
             </div>
         </div>
