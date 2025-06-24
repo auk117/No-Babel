@@ -42,9 +42,6 @@ class TelemetryApp {
         document.getElementById('remove-video-btn').addEventListener('click', () => this.removeSelectedVideo());
         document.getElementById('load-btn').addEventListener('click', () => this.loadAndSync());
         
-        // NEW: Test FIT parsing button
-        document.getElementById('test-fit-btn').addEventListener('click', () => this.testFitParsing());
-        
         document.getElementById('play-pause-btn').addEventListener('click', () => this.togglePlayPause());
         document.getElementById('timeline-slider').addEventListener('input', (e) => this.seekToPosition(e.target.value));
         
@@ -417,86 +414,6 @@ class TelemetryApp {
         }
     }
 
-    // NEW: Test FIT parsing function
-    async testFitParsing() {
-        if (!this.fitFilePath) {
-            this.showError('Please select a FIT file first');
-            return;
-        }
-
-        try {
-            this.showLoading(true, 'Testing FIT parsing methods...');
-            
-            const comparison = await window.electronAPI.testFitParsing(this.fitFilePath);
-            
-            this.showLoading(false);
-            
-            // Show results in a nice dialog
-            this.showTestResults(comparison);
-            
-        } catch (error) {
-            this.showLoading(false);
-            this.showError('FIT parsing test failed: ' + error.message);
-        }
-    }
-
-    // NEW: Show test results dialog
-    showTestResults(comparison) {
-        const resultDialog = document.createElement('div');
-        resultDialog.className = 'error-dialog'; // Reuse error dialog styling
-        
-        let statusColor = '#4CAF50'; // Green for success
-        let statusText = 'Both methods work!';
-        
-        if (!comparison.gpsbabelSuccess && !comparison.directSuccess) {
-            statusColor = '#ff6b6b'; // Red for failure
-            statusText = 'Both methods failed';
-        } else if (!comparison.gpsbabelSuccess) {
-            statusColor = '#ff9800'; // Orange for warning
-            statusText = 'GPSBabel failed, direct parsing works';
-        } else if (!comparison.directSuccess) {
-            statusColor = '#ff9800';
-            statusText = 'Direct parsing failed, GPSBabel works';
-        } else if (!comparison.closeMatch) {
-            statusColor = '#ff9800';
-            statusText = 'Both work but results differ significantly';
-        }
-        
-        resultDialog.innerHTML = `
-            <div class="error-overlay">
-                <div class="error-content">
-                    <h3 style="color: ${statusColor}">FIT Parsing Test Results</h3>
-                    <div class="error-message">
-                        <h4 style="color: ${statusColor}">${statusText}</h4>
-                        <br>
-                        <strong>GPSBabel Method:</strong><br>
-                        ${comparison.gpsbabelSuccess ? 
-                            `✅ Success - ${comparison.gpsbabelPoints} total points, ${comparison.gpsbabelValid} valid` : 
-                            '❌ Failed'}
-                        <br><br>
-                        <strong>Direct FIT Parsing:</strong><br>
-                        ${comparison.directSuccess ? 
-                            `✅ Success - ${comparison.directPoints} total points, ${comparison.directValid} valid` : 
-                            '❌ Failed'}
-                        
-                        ${comparison.gpsbabelSuccess && comparison.directSuccess ? `
-                        <br><br>
-                        <strong>Comparison:</strong><br>
-                        Point difference: ${comparison.pointsDifference || 0}<br>
-                        Valid point difference: ${comparison.validPointsDifference || 0}<br>
-                        Match quality: ${comparison.closeMatch ? '✅ Good match' : '⚠️ Significant difference'}
-                        ` : ''}
-                    </div>
-                    <div class="error-actions">
-                        <button class="btn primary" onclick="this.closest('.error-dialog').remove()">OK</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(resultDialog);
-    }
-
     async selectVideoFiles() {
         try {
             const filePaths = await window.electronAPI.selectVideoFiles();
@@ -563,19 +480,11 @@ class TelemetryApp {
 
     checkFilesReady() {
         const loadBtn = document.getElementById('load-btn');
-        const testBtn = document.getElementById('test-fit-btn');
         
         if (this.fitFilePath && this.videoFilePaths.length > 0) {
             loadBtn.disabled = false;
         } else {
             loadBtn.disabled = true;
-        }
-        
-        // Enable test button if FIT file is selected
-        if (this.fitFilePath) {
-            testBtn.disabled = false;
-        } else {
-            testBtn.disabled = true;
         }
     }
 
@@ -583,32 +492,14 @@ class TelemetryApp {
         try {
             this.showLoading(true, 'Processing files...');
             
-            // NEW: Use direct FIT parsing for .fit files, with GPSBabel fallback
+            // Process FIT or GPX files
             if (this.fitFilePath.toLowerCase().endsWith('.fit')) {
                 console.log('Processing FIT file...');
-                this.showLoading(true, 'Parsing FIT file directly...');
+                this.showLoading(true, 'Parsing FIT file...');
                 
-                try {
-                    // Try direct FIT parsing first
-                    this.gpxData = await window.electronAPI.parseFitDirect(this.fitFilePath);
-                    console.log(`✅ Direct FIT parsing successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
-                    
-                } catch (directError) {
-                    console.warn('❌ Direct FIT parsing failed:', directError.message);
-                    console.log('🔄 Falling back to GPSBabel method...');
-                    
-                    this.showLoading(true, 'Converting FIT to GPX (fallback method)...');
-                    
-                    try {
-                        const gpxFilePath = await window.electronAPI.convertFitToGpx(this.fitFilePath);
-                        this.showLoading(true, 'Parsing GPX data...');
-                        this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
-                        console.log(`✅ GPSBabel fallback successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
-                        
-                    } catch (fallbackError) {
-                        throw new Error(`Both FIT parsing methods failed. Direct: ${directError.message}. GPSBabel: ${fallbackError.message}`);
-                    }
-                }
+                this.gpxData = await window.electronAPI.parseFitDirect(this.fitFilePath);
+                console.log(`✅ FIT parsing successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
+                
             } else {
                 // For GPX files, parse directly
                 console.log('Parsing GPX data...');

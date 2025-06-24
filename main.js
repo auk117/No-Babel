@@ -11,10 +11,9 @@ const FitParser = require('fit-file-parser').default;
 const isDev = process.env.NODE_ENV === 'development';
 const resourcesPath = isDev ? __dirname : process.resourcesPath;
 
-// Set paths for bundled FFmpeg and GPSBabel
+// Set paths for bundled FFmpeg (GPSBabel removed!)
 const ffmpegPath = path.join(resourcesPath, 'tools', 'ffmpeg', 'ffmpeg.exe');
 const ffprobePath = path.join(resourcesPath, 'tools', 'ffmpeg', 'ffprobe.exe');
-const gpsbabelPath = path.join(resourcesPath, 'tools', 'gpsbabel', 'gpsbabel.exe');
 
 // Configure FFmpeg to use bundled binaries
 if (fs.existsSync(ffmpegPath)) {
