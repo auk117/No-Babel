@@ -143,14 +143,14 @@ async function parseFitFileDirect(fitFilePath) {
             
             // Check if we have position data
             if (record.position_lat !== undefined && record.position_long !== undefined) {
-              // FIT stores coordinates in semicircles, convert to degrees
-              lat = record.position_lat * (180 / Math.pow(2, 31));
-              lon = record.position_long * (180 / Math.pow(2, 31));
+              // The fit-file-parser library already converts coordinates to degrees
+              // No need for semicircle conversion!
+              lat = record.position_lat;
+              lon = record.position_long;
               
               // Debug logging for first few points
               if (index < 5) {
-                console.log(`Point ${index}: Raw lat=${record.position_lat}, lon=${record.position_long}`);
-                console.log(`Point ${index}: Converted lat=${lat}, lon=${lon}`);
+                console.log(`Point ${index}: Lat=${lat}, Lon=${lon}`);
               }
               
               // Check if coordinates are valid (not 0,0 and within valid ranges)
