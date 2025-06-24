@@ -5,7 +5,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
-const { FitParser, Stream } = require('@garmin/fitsdk');
+const FitParser = require('fit-file-parser').default;
 
 // Get paths for bundled tools
 const isDev = process.env.NODE_ENV === 'development';
@@ -102,75 +102,94 @@ async function parseFitFileDirect(fitFilePath) {
       
       // Read the FIT file
       const fitFileData = fs.readFileSync(fitFilePath);
-      const stream = Stream.fromByteArray(fitFileData);
       
       // Parse the FIT file
-      const fitParser = new FitParser();
-      const { messages } = fitParser.parse(stream);
-      
-      console.log('FIT file parsed, found message types:', Object.keys(messages));
-      
-      // Extract record messages (GPS track points)
-      const records = messages.recordMesgs || [];
-      console.log(`Found ${records.length} record messages`);
-      
-      if (records.length === 0) {
-        reject(new Error('No GPS track points found in FIT file'));
-        return;
-      }
-      
-      // Convert FIT records to GPX-like format
-      const allPoints = [];
-      
-      records.forEach((record) => {
-        if (record.positionLat !== undefined && record.positionLong !== undefined && record.timestamp) {
-          // Convert semicircles to degrees
-          const lat = record.positionLat * (180 / Math.pow(2, 31));
-          const lon = record.positionLong * (180 / Math.pow(2, 31));
-          
-          // Check if coordinates are valid
-          const isValidCoordinate = (
-            lat !== 0 || lon !== 0
-          ) && (
-            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
-          );
-          
-          // Convert FIT timestamp to ISO string
-          const timestamp = new Date(record.timestamp.getTime()).toISOString();
-          
-          allPoints.push({
-            lat: lat,
-            lon: lon,
-            ele: record.enhancedAltitude || record.altitude || null,
-            time: timestamp,
-            speed: record.enhancedSpeed || record.speed || null,
-            isValid: isValidCoordinate
-          });
-        }
+      const fitParser = new FitParser({
+        force: true,
+        speedUnit: 'ms', // meters per second
+        lengthUnit: 'm',  // meters
+        temperatureUnit: 'celsius',
+        elapsedRecordField: true,
+        mode: 'list'
       });
       
-      if (allPoints.length === 0) {
-        reject(new Error('No valid GPS points found in FIT file'));
-        return;
-      }
-      
-      // Sort by time
-      allPoints.sort((a, b) => new Date(a.time) - new Date(b.time));
-      
-      const validPoints = allPoints.filter(point => point.isValid);
-      
-      console.log(`Processed ${allPoints.length} total points, ${validPoints.length} valid points`);
-      
-      const result = {
-        points: allPoints,
-        validPoints: validPoints,
-        totalPoints: allPoints.length,
-        validPointsCount: validPoints.length,
-        startTime: allPoints.length > 0 ? allPoints[0].time : null,
-        endTime: allPoints.length > 0 ? allPoints[allPoints.length - 1].time : null
-      };
-      
-      resolve(result);
+      fitParser.parse(fitFileData, (error, data) => {
+        if (error) {
+          console.error('Error parsing FIT file:', error);
+          reject(new Error(`Failed to parse FIT file: ${error.message}`));
+          return;
+        }
+        
+        console.log('FIT file parsed successfully');
+        
+        // Extract record messages (GPS track points)
+        const records = data.records || [];
+        console.log(`Found ${records.length} record messages`);
+        
+        if (records.length === 0) {
+          reject(new Error('No GPS track points found in FIT file'));
+          return;
+        }
+        
+        // Convert FIT records to GPX-like format
+        const allPoints = [];
+        
+        records.forEach((record, index) => {
+          if (record.position_lat !== undefined && record.position_long !== undefined && record.timestamp) {
+            // FIT stores coordinates in semicircles, convert to degrees
+            const lat = record.position_lat * (180 / Math.pow(2, 31));
+            const lon = record.position_long * (180 / Math.pow(2, 31));
+            
+            // Check if coordinates are valid
+            const isValidCoordinate = (
+              lat !== 0 || lon !== 0
+            ) && (
+              lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+            );
+            
+            // Convert FIT timestamp to ISO string
+            let timestamp;
+            if (record.timestamp instanceof Date) {
+              timestamp = record.timestamp.toISOString();
+            } else {
+              // Handle timestamp as epoch seconds
+              timestamp = new Date(record.timestamp * 1000).toISOString();
+            }
+            
+            allPoints.push({
+              lat: lat,
+              lon: lon,
+              ele: record.enhanced_altitude || record.altitude || null,
+              time: timestamp,
+              speed: record.enhanced_speed || record.speed || null,
+              isValid: isValidCoordinate
+            });
+          }
+        });
+        
+        if (allPoints.length === 0) {
+          reject(new Error('No valid GPS points found in FIT file'));
+          return;
+        }
+        
+        // Sort by time
+        allPoints.sort((a, b) => new Date(a.time) - new Date(b.time));
+        
+        const validPoints = allPoints.filter(point => point.isValid);
+        
+        console.log(`Processed ${allPoints.length} total points, ${validPoints.length} valid points`);
+        
+        const result = {
+          points: allPoints,
+          validPoints: validPoints,
+          totalPoints: allPoints.length,
+          validPointsCount: validPoints.length,
+          startTime: allPoints.length > 0 ? allPoints[0].time : null,
+          endTime: allPoints.length > 0 ? allPoints[allPoints.length - 1].time : null
+        };
+        
+        resolve(result);
+      });
       
     } catch (error) {
       console.error('Error parsing FIT file directly:', error);
