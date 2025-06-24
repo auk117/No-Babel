@@ -401,92 +401,119 @@ async function checkVideoCompatibility(videoPaths) {
 // Fast concatenation without re-encoding
 async function performFastConcat(videoPaths) {
   return new Promise((resolve, reject) => {
-    const tempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
+    // Use the same directory as the first video file for temp files
+    const firstVideoDir = path.dirname(videoPaths[0]);
+    const tempDir = path.join(firstVideoDir, '.telemetry-temp');
+    
+    // Create temp directory if it doesn't exist
     if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+      try {
+        fs.mkdirSync(tempDir, { recursive: true });
+      } catch (err) {
+        // Fallback to system temp if external drive is read-only
+        const systemTempDir = path.join(os.tmpdir(), 'telemetry-sync-videos');
+        if (!fs.existsSync(systemTempDir)) {
+          fs.mkdirSync(systemTempDir, { recursive: true });
+        }
+        return performFastConcatFallback(videoPaths, systemTempDir, resolve, reject);
+      }
     }
     
     const timestamp = Date.now();
     const outputPath = path.join(tempDir, `stitched_video_${timestamp}.mp4`);
     const concatListPath = path.join(tempDir, `concat_list_${timestamp}.txt`);
     
-    const concatContent = videoPaths.map(videoPath => {
-      const escapedPath = videoPath.replace(/\\/g, '/').replace(/'/g, "\\'");
-      return `file '${escapedPath}'`;
-    }).join('\n');
-    
-    try {
-      fs.writeFileSync(concatListPath, concatContent, 'utf8');
-    } catch (err) {
-      reject(new Error(`Failed to create concat list: ${err.message}`));
-      return;
-    }
-    
-    const startTime = Date.now();
-    let lastProgress = 0;
-    
-    ffmpeg()
-      .input(concatListPath)
-      .inputOptions(['-f', 'concat', '-safe', '0'])
-      .outputOptions(['-c', 'copy', '-avoid_negative_ts', 'make_zero'])
-      .output(outputPath)
-      .on('start', (commandLine) => {
-        console.log('Fast concat started - CPU usage should be minimal');
-        
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('stitch-progress', {
-            percent: 0,
-            mode: 'fast_concat',
-            message: 'Starting fast concatenation...'
-          });
-        }
-      })
-      .on('progress', (progress) => {
-        const elapsed = (Date.now() - startTime) / 1000;
-        const percent = progress.percent || 0;
-        
-        if (percent - lastProgress >= 5) {
-          console.log(`Fast concat: ${percent.toFixed(1)}% (${elapsed.toFixed(1)}s)`);
-          lastProgress = percent;
-        }
-        
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('stitch-progress', {
-            percent: percent,
-            mode: 'fast_concat',
-            elapsed: elapsed,
-            message: `Concatenating videos: ${percent.toFixed(1)}%`
-          });
-        }
-      })
-      .on('end', () => {
-        const totalTime = (Date.now() - startTime) / 1000;
-        console.log(`Fast concat completed in ${totalTime.toFixed(1)} seconds`);
-        
-        try {
-          fs.unlinkSync(concatListPath);
-        } catch (err) {
-          console.warn('Failed to clean up concat list file:', err.message);
-        }
-        
-        resolve(outputPath);
-      })
-      .on('error', (err) => {
-        try {
-          if (fs.existsSync(concatListPath)) {
-            fs.unlinkSync(concatListPath);
-          }
-          if (fs.existsSync(outputPath)) {
-            fs.unlinkSync(outputPath);
-          }
-        } catch (cleanupErr) {
-          console.warn('Failed to clean up files after error:', cleanupErr.message);
-        }
-        
-        reject(new Error(`Fast concatenation failed: ${err.message}`));
-      })
-      .run();
+    performConcatenation(videoPaths, outputPath, concatListPath, tempDir, resolve, reject);
   });
+}
+
+// Fallback function for system temp directory
+function performFastConcatFallback(videoPaths, tempDir, resolve, reject) {
+  const timestamp = Date.now();
+  const outputPath = path.join(tempDir, `stitched_video_${timestamp}.mp4`);
+  const concatListPath = path.join(tempDir, `concat_list_${timestamp}.txt`);
+  
+  performConcatenation(videoPaths, outputPath, concatListPath, tempDir, resolve, reject);
+}
+
+// Main concatenation logic
+function performConcatenation(videoPaths, outputPath, concatListPath, tempDir, resolve, reject) {
+  const concatContent = videoPaths.map(videoPath => {
+    const escapedPath = videoPath.replace(/\\/g, '/').replace(/'/g, "\\'");
+    return `file '${escapedPath}'`;
+  }).join('\n');
+  
+  try {
+    fs.writeFileSync(concatListPath, concatContent, 'utf8');
+  } catch (err) {
+    reject(new Error(`Failed to create concat list: ${err.message}`));
+    return;
+  }
+  
+  const startTime = Date.now();
+  let lastProgress = 0;
+  
+  ffmpeg()
+    .input(concatListPath)
+    .inputOptions(['-f', 'concat', '-safe', '0'])
+    .outputOptions(['-c', 'copy', '-avoid_negative_ts', 'make_zero'])
+    .output(outputPath)
+    .on('start', (commandLine) => {
+      console.log('Fast concat started - CPU usage should be minimal');
+      
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('stitch-progress', {
+          percent: 0,
+          mode: 'fast_concat',
+          message: 'Starting fast concatenation...'
+        });
+      }
+    })
+    .on('progress', (progress) => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const percent = progress.percent || 0;
+      
+      if (percent - lastProgress >= 5) {
+        console.log(`Fast concat: ${percent.toFixed(1)}% (${elapsed.toFixed(1)}s)`);
+        lastProgress = percent;
+      }
+      
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('stitch-progress', {
+          percent: percent,
+          mode: 'fast_concat',
+          elapsed: elapsed,
+          message: `Concatenating videos: ${percent.toFixed(1)}%`
+        });
+      }
+    })
+    .on('end', () => {
+      const totalTime = (Date.now() - startTime) / 1000;
+      console.log(`Fast concat completed in ${totalTime.toFixed(1)} seconds`);
+      
+      try {
+        fs.unlinkSync(concatListPath);
+      } catch (err) {
+        console.warn('Failed to clean up concat list file:', err.message);
+      }
+      
+      resolve(outputPath);
+    })
+    .on('error', (err) => {
+      try {
+        if (fs.existsSync(concatListPath)) {
+          fs.unlinkSync(concatListPath);
+        }
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      } catch (cleanupErr) {
+        console.warn('Failed to clean up files after error:', cleanupErr.message);
+      }
+      
+      reject(new Error(`Fast concatenation failed: ${err.message}`));
+    })
+    .run();
 }
 
 // Fast concatenation only - reject incompatible videos
