@@ -147,9 +147,15 @@ async function parseFitFileDirect(fitFilePath) {
               lat = record.position_lat * (180 / Math.pow(2, 31));
               lon = record.position_long * (180 / Math.pow(2, 31));
               
+              // Debug logging for first few points
+              if (index < 5) {
+                console.log(`Point ${index}: Raw lat=${record.position_lat}, lon=${record.position_long}`);
+                console.log(`Point ${index}: Converted lat=${lat}, lon=${lon}`);
+              }
+              
               // Check if coordinates are valid (not 0,0 and within valid ranges)
               isValidCoordinate = (
-                lat !== 0 || lon !== 0
+                Math.abs(lat) > 0.0001 || Math.abs(lon) > 0.0001  // Not essentially zero
               ) && (
                 lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
               );
@@ -194,6 +200,10 @@ async function parseFitFileDirect(fitFilePath) {
         const validPoints = allPoints.filter(point => point.isValid);
         
         console.log(`Processed ${allPoints.length} total points, ${validPoints.length} valid points`);
+        
+        // Debug: Show first few valid points
+        const firstValidPoints = validPoints.slice(0, 3);
+        console.log('First few valid points:', firstValidPoints);
         
         const result = {
           points: allPoints,
