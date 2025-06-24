@@ -311,7 +311,12 @@ async function convertFitToGpxInternal(fitFilePath) {
   });
 }
 
-// Convert FIT to GPX using bundled GPSBabel (existing public function)
+// NEW: Parse FIT file directly (primary method)
+ipcMain.handle('parse-fit-direct', async (event, fitFilePath) => {
+  return parseFitFileDirect(fitFilePath);
+});
+
+// Convert FIT to GPX using bundled GPSBabel (fallback method)
 ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
   return convertFitToGpxInternal(fitFilePath);
 });

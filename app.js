@@ -583,17 +583,39 @@ class TelemetryApp {
         try {
             this.showLoading(true, 'Processing files...');
             
-            let gpxFilePath = this.fitFilePath;
+            // NEW: Use direct FIT parsing for .fit files, with GPSBabel fallback
             if (this.fitFilePath.toLowerCase().endsWith('.fit')) {
-                console.log('Converting FIT to GPX...');
-                this.showLoading(true, 'Converting FIT to GPX...');
-                gpxFilePath = await window.electronAPI.convertFitToGpx(this.fitFilePath);
+                console.log('Processing FIT file...');
+                this.showLoading(true, 'Parsing FIT file directly...');
+                
+                try {
+                    // Try direct FIT parsing first
+                    this.gpxData = await window.electronAPI.parseFitDirect(this.fitFilePath);
+                    console.log(`✅ Direct FIT parsing successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
+                    
+                } catch (directError) {
+                    console.warn('❌ Direct FIT parsing failed:', directError.message);
+                    console.log('🔄 Falling back to GPSBabel method...');
+                    
+                    this.showLoading(true, 'Converting FIT to GPX (fallback method)...');
+                    
+                    try {
+                        const gpxFilePath = await window.electronAPI.convertFitToGpx(this.fitFilePath);
+                        this.showLoading(true, 'Parsing GPX data...');
+                        this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
+                        console.log(`✅ GPSBabel fallback successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
+                        
+                    } catch (fallbackError) {
+                        throw new Error(`Both FIT parsing methods failed. Direct: ${directError.message}. GPSBabel: ${fallbackError.message}`);
+                    }
+                }
+            } else {
+                // For GPX files, parse directly
+                console.log('Parsing GPX data...');
+                this.showLoading(true, 'Parsing GPS data...');
+                this.gpxData = await window.electronAPI.parseGpx(this.fitFilePath);
+                console.log(`✅ GPX parsing successful: ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
             }
-            
-            console.log('Parsing GPX data...');
-            this.showLoading(true, 'Parsing GPS data...');
-            this.gpxData = await window.electronAPI.parseGpx(gpxFilePath);
-            console.log(`Loaded ${this.gpxData.totalPoints} GPS points (${this.gpxData.validPointsCount} valid)`);
             
             if (this.videoFilePaths.length > 1) {
                 console.log('Checking video compatibility...');

@@ -9,7 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stitchVideos: (videoPaths) => ipcRenderer.invoke('stitch-videos', videoPaths),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   
-  // NEW: Test FIT parsing function
+  // NEW: Direct FIT parsing
+  parseFitDirect: (fitFilePath) => ipcRenderer.invoke('parse-fit-direct', fitFilePath),
+  
+  // Test FIT parsing function
   testFitParsing: (fitFilePath) => ipcRenderer.invoke('test-fit-parsing', fitFilePath),
   
   onStitchProgress: (callback) => {
