@@ -5,6 +5,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
+const { FitParser, Stream } = require('@garmin/fitsdk');
 
 // Get paths for bundled tools
 const isDev = process.env.NODE_ENV === 'development';
@@ -93,8 +94,151 @@ ipcMain.handle('select-video-files', async () => {
   return null;
 });
 
-// Convert FIT to GPX using bundled GPSBabel
-ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
+// NEW: Direct FIT file parsing function
+async function parseFitFileDirect(fitFilePath) {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('Parsing FIT file directly:', fitFilePath);
+      
+      // Read the FIT file
+      const fitFileData = fs.readFileSync(fitFilePath);
+      const stream = Stream.fromByteArray(fitFileData);
+      
+      // Parse the FIT file
+      const fitParser = new FitParser();
+      const { messages } = fitParser.parse(stream);
+      
+      console.log('FIT file parsed, found message types:', Object.keys(messages));
+      
+      // Extract record messages (GPS track points)
+      const records = messages.recordMesgs || [];
+      console.log(`Found ${records.length} record messages`);
+      
+      if (records.length === 0) {
+        reject(new Error('No GPS track points found in FIT file'));
+        return;
+      }
+      
+      // Convert FIT records to GPX-like format
+      const allPoints = [];
+      
+      records.forEach((record) => {
+        if (record.positionLat !== undefined && record.positionLong !== undefined && record.timestamp) {
+          // Convert semicircles to degrees
+          const lat = record.positionLat * (180 / Math.pow(2, 31));
+          const lon = record.positionLong * (180 / Math.pow(2, 31));
+          
+          // Check if coordinates are valid
+          const isValidCoordinate = (
+            lat !== 0 || lon !== 0
+          ) && (
+            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+          );
+          
+          // Convert FIT timestamp to ISO string
+          const timestamp = new Date(record.timestamp.getTime()).toISOString();
+          
+          allPoints.push({
+            lat: lat,
+            lon: lon,
+            ele: record.enhancedAltitude || record.altitude || null,
+            time: timestamp,
+            speed: record.enhancedSpeed || record.speed || null,
+            isValid: isValidCoordinate
+          });
+        }
+      });
+      
+      if (allPoints.length === 0) {
+        reject(new Error('No valid GPS points found in FIT file'));
+        return;
+      }
+      
+      // Sort by time
+      allPoints.sort((a, b) => new Date(a.time) - new Date(b.time));
+      
+      const validPoints = allPoints.filter(point => point.isValid);
+      
+      console.log(`Processed ${allPoints.length} total points, ${validPoints.length} valid points`);
+      
+      const result = {
+        points: allPoints,
+        validPoints: validPoints,
+        totalPoints: allPoints.length,
+        validPointsCount: validPoints.length,
+        startTime: allPoints.length > 0 ? allPoints[0].time : null,
+        endTime: allPoints.length > 0 ? allPoints[allPoints.length - 1].time : null
+      };
+      
+      resolve(result);
+      
+    } catch (error) {
+      console.error('Error parsing FIT file directly:', error);
+      reject(new Error(`Failed to parse FIT file: ${error.message}`));
+    }
+  });
+}
+
+// NEW: Test function to compare FIT parsing methods
+ipcMain.handle('test-fit-parsing', async (event, fitFilePath) => {
+  try {
+    console.log('\n=== TESTING FIT PARSING METHODS ===');
+    
+    // Method 1: GPSBabel (existing)
+    console.log('1. Testing GPSBabel method...');
+    let gpsbabelResult = null;
+    try {
+      const gpxFilePath = await convertFitToGpxInternal(fitFilePath);
+      gpsbabelResult = await parseGpxInternal(gpxFilePath);
+      console.log(`GPSBabel result: ${gpsbabelResult.totalPoints} total, ${gpsbabelResult.validPointsCount} valid`);
+    } catch (error) {
+      console.log('GPSBabel method failed:', error.message);
+    }
+    
+    // Method 2: Direct FIT parsing (new)
+    console.log('2. Testing direct FIT parsing...');
+    let directResult = null;
+    try {
+      directResult = await parseFitFileDirect(fitFilePath);
+      console.log(`Direct FIT result: ${directResult.totalPoints} total, ${directResult.validPointsCount} valid`);
+    } catch (error) {
+      console.log('Direct FIT method failed:', error.message);
+    }
+    
+    // Compare results
+    let comparison = {
+      gpsbabelSuccess: gpsbabelResult !== null,
+      directSuccess: directResult !== null,
+      gpsbabelPoints: gpsbabelResult ? gpsbabelResult.totalPoints : 0,
+      directPoints: directResult ? directResult.totalPoints : 0,
+      gpsbabelValid: gpsbabelResult ? gpsbabelResult.validPointsCount : 0,
+      directValid: directResult ? directResult.validPointsCount : 0
+    };
+    
+    if (gpsbabelResult && directResult) {
+      const pointDiff = Math.abs(gpsbabelResult.totalPoints - directResult.totalPoints);
+      const validDiff = Math.abs(gpsbabelResult.validPointsCount - directResult.validPointsCount);
+      
+      comparison.pointsDifference = pointDiff;
+      comparison.validPointsDifference = validDiff;
+      comparison.closeMatch = pointDiff <= 5 && validDiff <= 5; // Allow small differences
+      
+      console.log(`Point count difference: ${pointDiff}`);
+      console.log(`Valid point difference: ${validDiff}`);
+      console.log(`Close match: ${comparison.closeMatch}`);
+    }
+    
+    console.log('=== TEST COMPLETE ===\n');
+    
+    return comparison;
+    
+  } catch (error) {
+    throw new Error(`Test failed: ${error.message}`);
+  }
+});
+
+// Convert FIT to GPX using bundled GPSBabel (existing function, now internal)
+async function convertFitToGpxInternal(fitFilePath) {
   return new Promise((resolve, reject) => {
     const gpxFilePath = fitFilePath.replace(/\.fit$/i, '.gpx');
     
@@ -130,6 +274,11 @@ ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
       reject(new Error(`Failed to run GPSBabel: ${err.message}`));
     });
   });
+}
+
+// Convert FIT to GPX using bundled GPSBabel (existing public function)
+ipcMain.handle('convert-fit-to-gpx', async (event, fitFilePath) => {
+  return convertFitToGpxInternal(fitFilePath);
 });
 
 // Check if videos can be concatenated without re-encoding
@@ -366,8 +515,8 @@ ipcMain.handle('get-video-metadata', async (event, videoPath) => {
   });
 });
 
-// Parse GPX file
-ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
+// Parse GPX file (existing function, now internal)
+async function parseGpxInternal(gpxFilePath) {
   try {
     const xmlData = fs.readFileSync(gpxFilePath, 'utf8');
     
@@ -433,6 +582,11 @@ ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
   } catch (error) {
     throw new Error(`Failed to parse GPX: ${error.message}`);
   }
+}
+
+// Parse GPX file (existing public function)
+ipcMain.handle('parse-gpx', async (event, gpxFilePath) => {
+  return parseGpxInternal(gpxFilePath);
 });
 
 // Open external URL
