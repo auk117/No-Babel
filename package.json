@@ -6,16 +6,20 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder --win portable",
     "build-portable": "electron-builder --win portable",
     "build-installer": "electron-builder --win nsis",
+    "build-both": "npm run build-portable && npm run build-installer",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux",
     "package-portable": "electron-packager . telemetry-sync --platform=win32 --arch=x64 --out=dist/ --overwrite"
   },
   "keywords": [
     "telemetry",
     "gps",
     "video",
-    "sync"
+    "sync",
+    "fit",
+    "garmin"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -25,9 +29,9 @@
     "electron-packager": "^17.1.2"
   },
   "dependencies": {
+    "fit-file-parser": "^1.8.0",
     "fast-xml-parser": "^4.3.2",
     "ffprobe-static": "^3.1.0",
-    "fit-file-parser": "^1.21.0",
     "fluent-ffmpeg": "^2.1.2"
   },
   "build": {
@@ -40,28 +44,55 @@
       "**/*",
       "!node_modules/electron/**/*",
       "!dist/**/*",
-      "!.git/**/*"
+      "!.git/**/*",
+      "!tools/gpsbabel/**/*"
     ],
     "win": {
       "target": [
         {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
         }
-      ]
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.png"
     },
     "portable": {
       "artifactName": "TelemetrySync-Portable.exe"
     },
+    "nsis": {
+      "artifactName": "TelemetrySync-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
     "extraResources": [
       {
-        "from": "tools/",
-        "to": "tools/",
-        "filter": [
-          "**/*"
-        ]
+        "from": "tools/ffmpeg/",
+        "to": "tools/ffmpeg/",
+        "filter": ["**/*"]
       }
     ]
   }
