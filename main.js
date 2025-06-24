@@ -135,17 +135,31 @@ async function parseFitFileDirect(fitFilePath) {
         const allPoints = [];
         
         records.forEach((record, index) => {
-          if (record.position_lat !== undefined && record.position_long !== undefined && record.timestamp) {
-            // FIT stores coordinates in semicircles, convert to degrees
-            const lat = record.position_lat * (180 / Math.pow(2, 31));
-            const lon = record.position_long * (180 / Math.pow(2, 31));
+          // Always process records that have a timestamp, even if GPS is invalid
+          if (record.timestamp) {
+            let lat = null;
+            let lon = null;
+            let isValidCoordinate = false;
             
-            // Check if coordinates are valid
-            const isValidCoordinate = (
-              lat !== 0 || lon !== 0
-            ) && (
-              lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
-            );
+            // Check if we have position data
+            if (record.position_lat !== undefined && record.position_long !== undefined) {
+              // FIT stores coordinates in semicircles, convert to degrees
+              lat = record.position_lat * (180 / Math.pow(2, 31));
+              lon = record.position_long * (180 / Math.pow(2, 31));
+              
+              // Check if coordinates are valid (not 0,0 and within valid ranges)
+              isValidCoordinate = (
+                lat !== 0 || lon !== 0
+              ) && (
+                lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+              );
+              
+              // If coordinates are invalid, set them to null but keep the point
+              if (!isValidCoordinate) {
+                lat = null;
+                lon = null;
+              }
+            }
             
             // Convert FIT timestamp to ISO string
             let timestamp;
@@ -156,6 +170,8 @@ async function parseFitFileDirect(fitFilePath) {
               timestamp = new Date(record.timestamp * 1000).toISOString();
             }
             
+            // Always add the point, even if GPS coordinates are invalid
+            // This preserves the timeline for video sync
             allPoints.push({
               lat: lat,
               lon: lon,
@@ -168,7 +184,7 @@ async function parseFitFileDirect(fitFilePath) {
         });
         
         if (allPoints.length === 0) {
-          reject(new Error('No valid GPS points found in FIT file'));
+          reject(new Error('No time points found in FIT file'));
           return;
         }
         
